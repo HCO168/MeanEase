@@ -384,7 +384,7 @@
       const activity = todayActivity(); activity.ratings++; activity.reviewed++; if (wasNew) activity.newStudied++;
       app.studyPosition++; await Promise.all([setMeta("activity", app.activity), setMeta("studyPosition", app.studyPosition)]);
       app.undo = { original, activityBefore, positionBefore, current: original, completed: app.completed }; app.completed++; app.current = pickNextCard(original.id); app.revealed = false; render();
-      if (rating === "remove") showToast(`${original.word} 已移出学习列表`); else showToast(`${original.word} 将在约 ${gap} 个词后出现`);
+      if (rating === "remove") showToast(`${original.word} 已移出学习列表`);
       if (app.settings.autoSpeak && app.current) speak(app.current.word);
     }
     async function undoRating() { if (!app.undo) return; await putCard(app.undo.original); app.deck = app.deck.map((card) => card.id === app.undo.original.id ? app.undo.original : card); app.activity = app.undo.activityBefore; app.studyPosition = app.undo.positionBefore; await Promise.all([setMeta("activity", app.activity), setMeta("studyPosition", app.studyPosition)]); app.current = app.undo.current; app.completed = app.undo.completed; app.revealed = false; app.undo = null; render(); showToast("已撤销上次评级"); }
