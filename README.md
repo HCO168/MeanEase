@@ -2,6 +2,8 @@
 
 一个无需后端的英语词汇学习工具，内置 20,000 词英汉词库、CEFR 难度参考、中文构词短注、可溯源双语例句、自适应词汇定级、词距复习队列、发音和稳定进度备份。
 
+在线使用：[https://meanease.hconet.com](https://meanease.hconet.com)
+
 ## 启动
 
 - Windows：双击 `启动英语词汇学习.bat`
