@@ -1,6 +1,6 @@
 # 英语词汇学习：间隔复习工具
 
-英语词汇学习是一个无后端、可离线运行的英语词汇学习工具。它将单词资料和学习进度保存在浏览器 IndexedDB 中，按照学习过的单词数量安排再次出现的位置，并支持键盘操作、浏览器美式英语发音、CSV 词库导入以及完整进度备份。
+英语词汇学习是一个 local-first、可离线运行的英语词汇学习工具。服务器静态 CSV 是内置词库来源，浏览器 IndexedDB 缓存词典资料并维护实时学习状态；用户也可以在 HCONet 网页版中手动把精简的个人元数据 CSV 保存到 Drive 应用数据区。应用按照学习过的单词数量安排再次出现的位置，并支持键盘操作、浏览器美式英语发音、CSV 词库导入以及完整 JSON 进度备份。
 
 ## 主要文件
 
@@ -82,7 +82,8 @@ python3 start_vocab.py
 
 ## 数据存储
 
-- 词库和逐卡学习记录存放在 IndexedDB 数据库 `vocab_coach_db`。
+- 内置 20,000 词资料来自服务器静态文件 `us_core_7000_authentic.csv`；浏览器会把它缓存到 IndexedDB 数据库 `vocab_coach_db`，但不会把词典正文复制进个人云存档。
+- 逐卡调度和个人元数据实时保存在 IndexedDB。日常评级、设置变更和定级测试不会自动发送网络请求。
 - IndexedDB 属于浏览器用户配置和固定来源 `http://127.0.0.1:8765`，不在项目目录，不会随 Git 提交上传。
 - 每日统计以本地日期为键保存，用于当天计数和连续学习天数。
 - 主题偏好单独保存在 LocalStorage。
@@ -91,8 +92,25 @@ python3 start_vocab.py
 - 页面底部提供独立的“导入进度”按钮，只接受备份 JSON，并在替换当前状态前明确确认。
 - 新版备份带 SHA-256 完整性值；导入前先完整校验所有卡片和调度字段，再用单个 IndexedDB 事务替换旧数据，失败不会留下半恢复状态。
 - 仍兼容 schema v2 和 schema v3 旧备份。旧的按天进度会安全迁移为立即可复习的词距卡片。导入 JSON 可以恢复到另一台设备或另一个浏览器。
+- HCONet 网页版设置中的“保存到云端”会按需生成 UTF-8 CSV，只包含变化过的单词调度、设置、统计、定级数据、主题和全局学习位置，然后通过 Drive App Data API 上传；单文件上限为 4 MiB。
+- 云存档固定命名为 `meanease_personal_data.csv`，保存在用户专属的 MeanEase 应用数据目录。保存和恢复都必须由用户点击触发，不做后台或定时同步。
+- 客户端记录最近一次已知云端 revision。发现云端 revision 不一致时，必须在覆盖前确认；后端仍以原子 revision 检查作为并发写入的最后防线。
+- 独立 `127.0.0.1:8765` 版没有 HCONet 域 Cookie，只支持本地进度与 JSON 导入导出；云存档支持 `https://meanease.hconet.com` 和开发域 `http://meanease.hconet.localhost`。
 
 使用 IndexedDB 是必要的。将 20,000 条完整词条连同调度状态写入 LocalStorage 会超过常见容量限制，也不适合频繁的逐卡更新。
+
+## 个人云存档 CSV
+
+个人 CSV 使用 UTF-8 with BOM 和 RFC 4180 引号规则，表头为：
+
+```csv
+record_type,key,state,due_position,interval,ease,reps,lapses,last_reviewed,removed_at,value
+```
+
+- `record_type=meta` 的行通过 `key/value` 保存 schema 版本、静态词库版本、导出时间、主题、设置、每日统计、定级状态和 `studyPosition`；结构化值使用 JSON 文本。
+- `record_type=word` 的行以规范化小写单词作为 `key`，只写入不再处于默认状态的卡片；词义、音标、例句、难度和构词资料仍从静态词库读取。
+- 恢复时先验证 schema、重复键、状态、数值范围、日期和定级数据，再按单词键匹配当前静态词库。已经不在当前词库中的记录会被忽略并向用户报告数量。
+- 恢复事务先把当前词库的个人字段重置为默认值，再应用 CSV 中的变化记录，因此云存档代表完整的个人状态快照，而不是增量补丁。
 
 ## CSV 格式
 

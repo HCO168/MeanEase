@@ -99,6 +99,11 @@
     .field label { font-weight: 700; font-size: 14px; }
     .field select { min-height: 42px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); color: var(--text); }
     .check-row { display: flex; gap: 10px; align-items: center; }
+    .cloud-panel { padding-top: 18px; border-top: 1px solid var(--line); display: grid; gap: 10px; }
+    .cloud-panel h3, .cloud-panel p { margin: 0; }
+    .cloud-panel p { color: var(--muted); font-size: 13px; line-height: 1.55; }
+    .cloud-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .cloud-status { min-height: 20px; color: var(--muted); font-size: 12px; }
     .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
     .placement-copy { margin: 0; color: var(--muted); line-height: 1.65; }
     .placement-source { font-size: 12px; color: var(--muted); }
@@ -210,6 +215,15 @@
       <button class="dialog-close" value="cancel" type="submit" aria-label="关闭设置">×</button>
       <h2>学习设置</h2>
       <label class="check-row"><input id="auto-speak" type="checkbox"> 新卡出现时自动读词</label>
+      <section class="cloud-panel" aria-labelledby="cloud-save-title">
+        <h3 id="cloud-save-title">HCONet 云存档</h3>
+        <p>只保存个人学习进度、设置和定级数据；20,000 词静态词库不会上传。只有点击按钮时才会访问云端。</p>
+        <div class="cloud-actions">
+          <button class="primary-button" id="cloud-save-button" type="button">保存到云端</button>
+          <button class="quiet-button" id="cloud-restore-button" type="button">从云端恢复</button>
+        </div>
+        <p class="cloud-status" id="cloud-status" role="status">尚未进行云端操作</p>
+      </section>
       <div class="dialog-actions"><button class="quiet-button" value="cancel" type="submit">取消</button><button class="primary-button" id="save-settings" value="default" type="submit">保存</button></div>
     </form>
   </dialog>
@@ -247,6 +261,8 @@
     "use strict";
     const DB_NAME = "vocab_coach_db", DB_VERSION = 1, CARD_STORE = "cards", META_STORE = "meta";
     const LIBRARY_FILE = "us_core_7000_authentic.csv", LIBRARY_NAME = "ECDICT 高频 20000 + 多源 CEFR + 中文构词 + Tatoeba 例句", LIBRARY_VERSION = "20000-multisource-cefr-2026-08-v3";
+    const CLOUD_APP_ID = "meanease", CLOUD_FILE_NAME = "meanease_personal_data.csv", CLOUD_MAX_BYTES = 4 * 1024 * 1024;
+    const PERSONAL_DATA_HEADERS = ["record_type", "key", "state", "due_position", "interval", "ease", "reps", "lapses", "last_reviewed", "removed_at", "value"];
     const DEFAULT_SETTINGS = { autoSpeak: false };
     const RATING_WORD_GAPS = { again: 8, hard: 20, good: 100, easy: 1000 };
     const ADVANCED_C1_MIX = .25;
@@ -485,6 +501,153 @@
     function exitPlacement() { $("placement-dialog").close(); showToast(app.placementDraft ? "测试进度已保存，下次可以继续" : "定级结果已保存"); }
     function speak(text) { if (!text || !("speechSynthesis" in window)) { showToast("当前浏览器不支持语音合成"); return; } speechSynthesis.cancel(); const utterance = new SpeechSynthesisUtterance(text); utterance.lang = "en-US"; utterance.rate = .88; const voices = speechSynthesis.getVoices(); utterance.voice = voices.find((voice) => voice.lang === "en-US") || voices.find((voice) => voice.lang.startsWith("en")) || null; speechSynthesis.speak(utterance); }
     function showToast(message) { clearTimeout(app.toastTimer); $("toast").textContent = message; $("toast").classList.add("show"); app.toastTimer = setTimeout(() => $("toast").classList.remove("show"), 2600); }
+    function cloudApiBase() { return location.hostname.endsWith(".localhost") ? "http://api.hconet.localhost" : "https://api.hconet.com"; }
+    function cloudSupported() { return location.hostname === "meanease.hconet.com" || location.hostname === "meanease.hconet.localhost"; }
+    function setCloudStatus(message) { $("cloud-status").textContent = message; }
+    function csvCell(value) { const text = String(value ?? ""); return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; }
+    function isChangedPersonalCard(card) {
+      return card.state !== "new" || card.duePosition !== 0 || card.interval !== 0 || card.ease !== 2.5 || card.reps !== 0 || card.lapses !== 0 || card.lastReviewed !== null || card.removedAt !== null;
+    }
+    async function serializePersonalDataCsv() {
+      if (await getMeta("libraryVersion", null) !== LIBRARY_VERSION) throw new Error("云存档目前只支持服务器提供的内置 20,000 词库");
+      const rows = [PERSONAL_DATA_HEADERS];
+      const metadata = {
+        schema_version: "1",
+        source_library_version: LIBRARY_VERSION,
+        exported_at: new Date().toISOString(),
+        theme: document.documentElement.dataset.theme,
+        settings: JSON.stringify(app.settings),
+        activity: JSON.stringify(app.activity),
+        placement: JSON.stringify(app.placement),
+        placement_draft: JSON.stringify(app.placementDraft),
+        study_position: String(app.studyPosition)
+      };
+      Object.entries(metadata).forEach(([key, value]) => rows.push(["meta", key, "", "", "", "", "", "", "", "", value]));
+      (await allCards()).filter(isChangedPersonalCard).forEach((card) => rows.push([
+        "word",
+        card.word.toLocaleLowerCase("en-US"),
+        card.state,
+        card.duePosition,
+        card.interval,
+        card.ease,
+        card.reps,
+        card.lapses,
+        card.lastReviewed || "",
+        card.removedAt || "",
+        ""
+      ]));
+      return `\ufeff${rows.map((row) => row.map(csvCell).join(",")).join("\r\n")}\r\n`;
+    }
+    function parseJsonMetadata(metadata, key, fallback) {
+      if (!metadata.has(key)) return fallback;
+      try { return JSON.parse(metadata.get(key)); } catch (_) { throw new Error(`云存档中的 ${key} 数据无效`); }
+    }
+    function parsePersonalProgressRow(row) {
+      const state = String(row.state || "");
+      const duePosition = Number(row.due_position), interval = Number(row.interval), ease = Number(row.ease), reps = Number(row.reps), lapses = Number(row.lapses);
+      if (!["new", "learning", "review", "removed"].includes(state)) throw new Error("云存档包含无效的单词状态");
+      if (![duePosition, interval, ease, reps, lapses].every(Number.isFinite) || !Number.isInteger(duePosition) || duePosition < 0 || interval < 0 || ease < 1 || ease > 5 || !Number.isInteger(reps) || reps < 0 || !Number.isInteger(lapses) || lapses < 0) throw new Error("云存档包含无效的学习进度");
+      const lastReviewed = row.last_reviewed || null, removedAt = row.removed_at || null;
+      if ((lastReviewed && !Number.isFinite(Date.parse(lastReviewed))) || (removedAt && !Number.isFinite(Date.parse(removedAt)))) throw new Error("云存档包含无效的日期");
+      return { state, due: 0, duePosition, interval, ease, reps, lapses, lastReviewed, removedAt };
+    }
+    async function restorePersonalDataCsv(text) {
+      if (await getMeta("libraryVersion", null) !== LIBRARY_VERSION) throw new Error("请先恢复服务器提供的内置 20,000 词库，再恢复云存档");
+      const rows = parseCSV(text);
+      if (!rows.length || !rows.every((row) => row.record_type && row.key)) throw new Error("云存档 CSV 格式无效");
+      const metadata = new Map(), progress = new Map();
+      rows.forEach((row) => {
+        if (row.record_type === "meta") {
+          if (metadata.has(row.key)) throw new Error("云存档包含重复的元数据");
+          metadata.set(row.key, row.value || "");
+          return;
+        }
+        if (row.record_type !== "word") throw new Error("云存档包含未知的记录类型");
+        const key = row.key.trim().toLocaleLowerCase("en-US");
+        if (!key || progress.has(key)) throw new Error("云存档包含空白或重复的单词记录");
+        progress.set(key, parsePersonalProgressRow(row));
+      });
+      if (metadata.get("schema_version") !== "1") throw new Error("不支持此云存档版本");
+      const settings = { ...DEFAULT_SETTINGS, ...parseJsonMetadata(metadata, "settings", {}) };
+      settings.autoSpeak = Boolean(settings.autoSpeak); delete settings.newLimit; delete settings.reviewLimit;
+      const activity = parseJsonMetadata(metadata, "activity", {});
+      if (!activity || typeof activity !== "object" || Array.isArray(activity)) throw new Error("云存档中的 activity 数据无效");
+      const placement = parseJsonMetadata(metadata, "placement", null), placementDraft = parseJsonMetadata(metadata, "placement_draft", null);
+      if (!validPlacement(placement) || !validPlacementDraft(placementDraft)) throw new Error("云存档中的定级数据无效");
+      const studyPosition = Number(metadata.get("study_position") || 0);
+      if (!Number.isInteger(studyPosition) || studyPosition < 0) throw new Error("云存档中的学习位置无效");
+      const cards = await allCards(), knownWords = new Set(cards.map((card) => card.word.toLocaleLowerCase("en-US")));
+      const unmatched = [...progress.keys()].filter((key) => !knownWords.has(key)).length;
+      const cleanCards = cards.map((card) => {
+        const reset = { ...card, state: "new", due: 0, duePosition: 0, interval: 0, ease: 2.5, reps: 0, lapses: 0, lastReviewed: null, removedAt: null };
+        return { ...reset, ...(progress.get(card.word.toLocaleLowerCase("en-US")) || {}) };
+      });
+      const tx = app.db.transaction([CARD_STORE, META_STORE], "readwrite"), store = tx.objectStore(CARD_STORE), meta = tx.objectStore(META_STORE);
+      cleanCards.forEach((card) => store.put(card));
+      [["settings", settings], ["activity", activity], ["placement", placement], ["placementDraft", placementDraft], ["studyPosition", studyPosition]].forEach(([key, value]) => meta.put({ key, value }));
+      await transactionDone(tx);
+      app.settings = settings; app.activity = activity; app.placement = placement; app.placementDraft = placementDraft; app.studyPosition = studyPosition; app.test = null; app.undo = null;
+      const theme = metadata.get("theme"); if (theme === "light" || theme === "dark") applyTheme(theme);
+      return { restored: progress.size - unmatched, unmatched };
+    }
+    async function cloudRequest(path, options = {}) {
+      if (!cloudSupported()) throw new Error("本地 127.0.0.1 版没有 HCONet 登录 Cookie，请在网页版使用云存档");
+      const response = await fetch(`${cloudApiBase()}${path}`, { ...options, credentials: "include", headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) } });
+      const text = await response.text(); let data = null;
+      if (text) { try { data = JSON.parse(text); } catch (_) { data = { error: text }; } }
+      if (!response.ok) {
+        if (response.status === 401) throw new Error("请先登录 HCONet，再使用云存档");
+        if (response.status === 403) throw new Error("需要已验证邮箱的 HCONet 账号才能写入云存档");
+        throw new Error(data?.error || `云端请求失败（${response.status}）`);
+      }
+      return data;
+    }
+    async function registerAndListCloudFiles() {
+      await cloudRequest(`/drive/app-data/${CLOUD_APP_ID}/register`, { method: "POST" });
+      return cloudRequest(`/drive/app-data/${CLOUD_APP_ID}/files`);
+    }
+    async function savePersonalDataToCloud() {
+      setCloudStatus("正在整理个人学习数据…");
+      const csv = await serializePersonalDataCsv(), blob = new Blob([csv], { type: "text/csv; charset=utf-8" });
+      if (blob.size > CLOUD_MAX_BYTES) throw new Error("个人学习数据超过 4 MiB 云存档上限");
+      const listing = await registerAndListCloudFiles(), current = (listing.files || []).find((file) => file.file_name === CLOUD_FILE_NAME) || null;
+      const knownRevision = await getMeta("cloudRevision", null), currentRevision = Number(current?.revision || 0);
+      if (currentRevision > 0 && knownRevision !== currentRevision && !confirm(`云端已有 revision ${currentRevision} 的存档，可能来自另一台设备。确定用当前浏览器的数据覆盖吗？`)) {
+        setCloudStatus("已取消，云端存档未改变"); return;
+      }
+      setCloudStatus("正在上传个人学习数据…");
+      const upload = await cloudRequest(`/drive/app-data/${CLOUD_APP_ID}/uploads`, { method: "POST", body: JSON.stringify({ file_name: CLOUD_FILE_NAME, size: blob.size, content_type: "text/csv; charset=utf-8", base_revision: currentRevision }) });
+      const uploadResponse = await fetch(upload.request.url, { method: "PUT", headers: upload.request.headers || {}, body: blob });
+      if (!uploadResponse.ok) throw new Error(`B2 上传失败（${uploadResponse.status}）`);
+      const completed = await cloudRequest(`/drive/app-data/uploads/${upload.upload_id}/complete`, { method: "POST" });
+      const savedAt = new Date().toISOString();
+      await Promise.all([setMeta("cloudRevision", completed.file.revision), setMeta("cloudSavedAt", savedAt)]);
+      setCloudStatus(`已保存到云端 · revision ${completed.file.revision} · ${new Date(savedAt).toLocaleString("zh-CN")}`);
+      showToast("个人学习数据已保存到云端");
+    }
+    async function restorePersonalDataFromCloud() {
+      const listing = await registerAndListCloudFiles(), current = (listing.files || []).find((file) => file.file_name === CLOUD_FILE_NAME);
+      if (!current) throw new Error("云端还没有 MeanEase 存档");
+      if (!confirm("从云端恢复会替换当前浏览器中的个人学习进度、设置和定级数据。确定继续吗？")) return;
+      setCloudStatus("正在下载并校验云存档…");
+      const response = await fetch(`${cloudApiBase()}/drive/app-data/${CLOUD_APP_ID}/files/${encodeURIComponent(current.file_id)}/content?purpose=inline`, { credentials: "include" });
+      if (!response.ok) throw new Error(`云存档下载失败（${response.status}）`);
+      const result = await restorePersonalDataCsv(await response.text());
+      await Promise.all([setMeta("cloudRevision", current.revision), setMeta("cloudSavedAt", current.updated_at)]);
+      await startSession();
+      setCloudStatus(`已恢复 revision ${current.revision} · 匹配 ${result.restored} 条个人单词记录${result.unmatched ? `，忽略 ${result.unmatched} 条已不在词库中的记录` : ""}`);
+      showToast("云端个人学习数据已恢复");
+    }
+    async function runCloudAction(action) {
+      const buttons = [$("cloud-save-button"), $("cloud-restore-button")]; buttons.forEach((button) => { button.disabled = true; });
+      try { await action(); } catch (error) { setCloudStatus(error.message); showToast(`云存档失败：${error.message}`); }
+      finally { buttons.forEach((button) => { button.disabled = false; }); }
+    }
+    async function refreshCloudStatus() {
+      if (!cloudSupported()) { setCloudStatus("本地 127.0.0.1 版没有 HCONet 登录 Cookie，请在网页版使用云存档"); return; }
+      const savedAt = await getMeta("cloudSavedAt", null), revision = await getMeta("cloudRevision", null);
+      setCloudStatus(savedAt ? `本浏览器上次云端操作：revision ${revision} · ${new Date(savedAt).toLocaleString("zh-CN")}` : "尚未在本浏览器进行云端保存或恢复");
+    }
     async function backupChecksum(backup) {
       if (!crypto?.subtle) throw new Error("当前浏览器不支持备份完整性校验");
       const copy = { ...backup }; delete copy.integrity;
@@ -549,7 +712,9 @@
       $("progress-file-input").addEventListener("change", async (event) => { const file = event.target.files[0]; if (!file) return; if (confirm("导入进度将替换当前词库和全部学习记录。确定继续吗？")) { try { await importProgress(file); } catch (error) { showToast(`导入进度失败：${error.message}`); } } event.target.value = ""; });
       $("export-button").addEventListener("click", async () => { try { await exportBackup(); } catch (error) { showToast(`备份失败：${error.message}`); } }); $("reset-button").addEventListener("click", clearDeck); $("theme-button").addEventListener("click", () => applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
       $("placement-button").addEventListener("click", openPlacement); $("placement-cancel").addEventListener("click", exitPlacement); $("placement-close").addEventListener("click", exitPlacement); $("placement-test-exit").addEventListener("click", exitPlacement); $("start-placement").addEventListener("click", () => startPlacement(false)); $("retest-placement").addEventListener("click", () => startPlacement(true)); $("apply-placement").addEventListener("click", applyPlacement);
-      $("settings-button").addEventListener("click", () => { $("auto-speak").checked = app.settings.autoSpeak; $("settings-dialog").showModal(); });
+      $("settings-button").addEventListener("click", () => { $("auto-speak").checked = app.settings.autoSpeak; refreshCloudStatus(); $("settings-dialog").showModal(); });
+      $("cloud-save-button").addEventListener("click", () => runCloudAction(savePersonalDataToCloud));
+      $("cloud-restore-button").addEventListener("click", () => runCloudAction(restorePersonalDataFromCloud));
       $("exit-button").addEventListener("click", closeApp); $("resume-button").addEventListener("click", () => { $("closed-screen").hidden = true; $("app-shell").hidden = false; });
       $("save-settings").addEventListener("click", async () => { app.settings = { autoSpeak: $("auto-speak").checked }; await setMeta("settings", app.settings); await startSession(); showToast("设置已保存"); });
       window.addEventListener("keydown", (event) => { if ($("settings-dialog").open || $("placement-dialog").open || event.target.matches("select, input")) return; if (event.code === "Space") { event.preventDefault(); reveal(); } else if (["1", "2", "3", "4", "5"].includes(event.key)) rate(["again", "hard", "good", "easy", "remove"][Number(event.key) - 1]); else if (event.key.toLowerCase() === "s") speak(app.current?.word); else if (event.key.toLowerCase() === "d") speak(app.current?.example_en); });
