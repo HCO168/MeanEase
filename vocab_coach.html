@@ -656,31 +656,74 @@
     }
     function validPlacement(value) { return value === null || (value && LEVELS.includes(value.level) && Number.isFinite(Number(value.theta))); }
     function validPlacementDraft(value) { return value === null || (value && Number.isFinite(Number(value.theta)) && Number.isInteger(Number(value.answered)) && Number(value.answered) >= 0 && Number(value.answered) < PLACEMENT_QUESTIONS && Number.isInteger(Number(value.correct)) && Number(value.correct) >= 0 && Number(value.correct) <= Number(value.answered) && Number.isInteger(Number(value.unknown || 0)) && Number(value.unknown || 0) >= 0 && Number(value.unknown || 0) <= Number(value.answered) && Array.isArray(value.used) && value.used.length <= PLACEMENT_QUESTIONS); }
-    async function restoreBackup(backup) {
-      if (!backup || ![2, 3, 4].includes(Number(backup.schemaVersion)) || !Array.isArray(backup.cards) || !backup.cards.length || backup.cards.length > 100000) throw new Error("备份格式或卡片数量无效");
-      if (backup.integrity) {
-        if (backup.integrity.algorithm !== "SHA-256" || backup.integrity.value !== await backupChecksum(backup)) throw new Error("备份完整性校验失败，文件可能不完整或已损坏");
-      }
-      if (!validPlacement(backup.placement || null)) throw new Error("备份中的定级结果无效");
-      if (!validPlacementDraft(backup.placementDraft || null)) throw new Error("备份中的未完成测试无效");
-      const clean = [], ids = new Set(), words = new Set();
-      for (const raw of backup.cards) {
-        const card = normalizeCard(raw, clean.length), wordKey = card.word.toLocaleLowerCase("en-US");
-        if (!card.word || ids.has(card.id) || words.has(wordKey)) throw new Error("备份包含空单词或重复卡片");
-        if (!["new", "learning", "review", "removed"].includes(card.state) || ![card.due, card.duePosition, card.interval, card.ease, card.reps, card.lapses, card.order].every(Number.isFinite) || card.duePosition < 0 || card.interval < 0 || card.reps < 0 || card.lapses < 0) throw new Error("备份包含无效的复习进度");
-        ids.add(card.id); words.add(wordKey); clean.push(card);
-      }
+    function normalizeBackupProgress(raw) {
+      const word = String(raw.word || raw.key || "").trim(), state = String(raw.state || "new");
+      const duePosition = Number(raw.duePosition || 0), interval = Number(raw.interval || 0), ease = Number(raw.ease ?? 2.5), reps = Number(raw.reps || 0), lapses = Number(raw.lapses || 0);
+      if (!word) throw new Error("备份包含空单词");
+      if (!["new", "learning", "review", "removed"].includes(state)) throw new Error("备份包含无效的单词状态");
+      if (![duePosition, interval, ease, reps, lapses].every(Number.isFinite) || !Number.isInteger(duePosition) || duePosition < 0 || interval < 0 || ease < 1 || ease > 5 || !Number.isInteger(reps) || reps < 0 || !Number.isInteger(lapses) || lapses < 0) throw new Error("备份包含无效的复习进度");
+      const lastReviewed = raw.lastReviewed || null, removedAt = raw.removedAt || null;
+      if ((lastReviewed && !Number.isFinite(Date.parse(lastReviewed))) || (removedAt && !Number.isFinite(Date.parse(removedAt)))) throw new Error("备份包含无效的日期");
+      return { word: word.toLocaleLowerCase("en-US"), state, duePosition, interval, ease, reps, lapses, lastReviewed, removedAt };
+    }
+    function cleanBackupMetadata(backup) {
       const settings = { ...DEFAULT_SETTINGS, ...(backup.settings || {}) };
       settings.autoSpeak = Boolean(settings.autoSpeak); delete settings.newLimit; delete settings.reviewLimit;
       const activity = backup.activity && typeof backup.activity === "object" && !Array.isArray(backup.activity) ? backup.activity : {};
       const placement = backup.placement || null, placementDraft = backup.placementDraft && Number(backup.placementDraft.answered) < PLACEMENT_QUESTIONS ? backup.placementDraft : null;
+      if (!validPlacement(placement)) throw new Error("备份中的定级结果无效");
+      if (!validPlacementDraft(placementDraft)) throw new Error("备份中的未完成测试无效");
       const studyPosition = Number.isFinite(Number(backup.studyPosition)) && Number(backup.studyPosition) >= 0 ? Math.floor(Number(backup.studyPosition)) : 0;
-      const tx = app.db.transaction([CARD_STORE, META_STORE], "readwrite"), store = tx.objectStore(CARD_STORE), meta = tx.objectStore(META_STORE); store.clear(); clean.forEach((card) => store.put(card));
-      const libraryName = String(backup.libraryName || "恢复的词库");
-      [["libraryName", libraryName], ["libraryVersion", backup.libraryVersion || null], ["settings", settings], ["activity", activity], ["placement", placement], ["placementDraft", placementDraft], ["studyPosition", studyPosition]].forEach(([key, value]) => meta.put({ key, value }));
+      return { settings, activity, placement, placementDraft, studyPosition };
+    }
+    async function validateBackupIntegrity(backup) {
+      if (backup.integrity && (backup.integrity.algorithm !== "SHA-256" || backup.integrity.value !== await backupChecksum(backup))) throw new Error("备份完整性校验失败，文件可能不完整或已损坏");
+    }
+    async function convertBackupToLatest(backup) {
+      if (!backup || ![2, 3, 4, 5].includes(Number(backup.schemaVersion))) throw new Error("不支持此进度备份版本");
+      await validateBackupIntegrity(backup);
+      const sourceVersion = Number(backup.schemaVersion), metadata = cleanBackupMetadata(backup);
+      const sourceProgress = sourceVersion === 5 ? backup.progress : backup.cards;
+      if (!Array.isArray(sourceProgress) || sourceProgress.length > 100000) throw new Error("备份格式或进度数量无效");
+      const progress = [], words = new Set();
+      for (const raw of sourceProgress) {
+        const personal = normalizeBackupProgress(raw), key = personal.word;
+        if (words.has(key)) throw new Error("备份包含重复单词");
+        words.add(key);
+        if (isChangedPersonalCard(personal)) progress.push(personal);
+      }
+      const latest = {
+        schemaVersion: 5,
+        exportedAt: new Date().toISOString(),
+        libraryName: String(backup.libraryName || LIBRARY_NAME),
+        libraryVersion: backup.libraryVersion || null,
+        theme: backup.theme === "dark" ? "dark" : "light",
+        ...metadata,
+        progress
+      };
+      latest.integrity = { algorithm: "SHA-256", value: await backupChecksum(latest) };
+      return { latest, sourceVersion };
+    }
+    async function restoreBackup(backup) {
+      const { latest, sourceVersion } = await convertBackupToLatest(backup), progress = new Map(latest.progress.map((row) => [row.word, row]));
+      const cards = await allCards(), knownWords = new Set(cards.map((card) => card.word.toLocaleLowerCase("en-US")));
+      const unmatched = [...progress.keys()].filter((key) => !knownWords.has(key)).length;
+      const cleanCards = cards.map((card) => {
+        const reset = { ...card, state: "new", due: 0, duePosition: 0, interval: 0, ease: 2.5, reps: 0, lapses: 0, lastReviewed: null, removedAt: null };
+        const personal = progress.get(card.word.toLocaleLowerCase("en-US"));
+        return personal ? { ...reset, ...personal, word: card.word } : reset;
+      });
+      const tx = app.db.transaction([CARD_STORE, META_STORE], "readwrite"), store = tx.objectStore(CARD_STORE), meta = tx.objectStore(META_STORE);
+      cleanCards.forEach((card) => store.put(card));
+      [["settings", latest.settings], ["activity", latest.activity], ["placement", latest.placement], ["placementDraft", latest.placementDraft], ["studyPosition", latest.studyPosition]].forEach(([key, value]) => meta.put({ key, value }));
       await transactionDone(tx);
-      app.libraryName = libraryName; app.settings = settings; app.activity = activity; app.placement = placement; app.placementDraft = placementDraft; app.studyPosition = studyPosition; app.test = null; app.undo = null;
-      if (backup.theme === "light" || backup.theme === "dark") applyTheme(backup.theme);
+      app.settings = latest.settings; app.activity = latest.activity; app.placement = latest.placement; app.placementDraft = latest.placementDraft; app.studyPosition = latest.studyPosition; app.test = null; app.undo = null;
+      applyTheme(latest.theme);
+      return { latest, sourceVersion, restored: latest.progress.length - unmatched, unmatched };
+    }
+    function downloadBackup(backup, fileName) {
+      const blob = new Blob([JSON.stringify(backup)], { type: "application/json" }), url = URL.createObjectURL(blob), link = document.createElement("a");
+      link.href = url; link.download = fileName; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
     async function handleFile(file) {
       const text = await file.text();
@@ -690,15 +733,16 @@
     }
     async function importProgress(file) {
       if (!file.name.toLowerCase().endsWith(".json")) throw new Error("请选择由“备份进度”导出的 JSON 文件");
-      await restoreBackup(JSON.parse(await file.text()));
+      const result = await restoreBackup(JSON.parse(await file.text()));
       await ensureBundledLibrary();
       await startSession();
-      showToast(`进度已导入，共恢复 ${(await allCards()).length} 个单词`);
+      if (result.sourceVersion < 5) downloadBackup(result.latest, `vocab-coach-backup-converted-v5-${dayKey()}.json`);
+      showToast(result.sourceVersion < 5 ? `旧版进度已转换为 v5 并恢复 ${result.restored} 条，已提供新版下载` : `进度已导入，共恢复 ${result.restored} 条个人记录`);
     }
     async function exportBackup() {
-      const backup = { schemaVersion: 4, exportedAt: new Date().toISOString(), libraryName: app.libraryName, libraryVersion: await getMeta("libraryVersion", null), theme: document.documentElement.dataset.theme, settings: app.settings, activity: app.activity, placement: app.placement, placementDraft: app.placementDraft, studyPosition: app.studyPosition, cards: await allCards() };
+      const backup = { schemaVersion: 5, exportedAt: new Date().toISOString(), libraryName: app.libraryName, libraryVersion: await getMeta("libraryVersion", null), theme: document.documentElement.dataset.theme, settings: app.settings, activity: app.activity, placement: app.placement, placementDraft: app.placementDraft, studyPosition: app.studyPosition, progress: (await allCards()).filter(isChangedPersonalCard).map((card) => normalizeBackupProgress(card)) };
       backup.integrity = { algorithm: "SHA-256", value: await backupChecksum(backup) };
-      const blob = new Blob([JSON.stringify(backup)], { type: "application/json" }), url = URL.createObjectURL(blob), link = document.createElement("a"); link.href = url; link.download = `vocab-coach-backup-${dayKey()}.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); showToast("备份已保存并完成完整性校验");
+      downloadBackup(backup, `vocab-coach-backup-${dayKey()}.json`); showToast(`已备份 ${backup.progress.length} 条个人进度，静态词库未导出`);
     }
     async function clearDeck() { if (!confirm("确定清空当前词库和全部学习记录吗？此操作无法撤销。")) return; const tx = app.db.transaction([CARD_STORE, META_STORE], "readwrite"); tx.objectStore(CARD_STORE).clear(); tx.objectStore(META_STORE).clear(); await transactionDone(tx); await seedDeck(); app.settings = { ...DEFAULT_SETTINGS }; app.activity = {}; app.placement = null; app.placementDraft = null; app.studyPosition = 0; app.test = null; await startSession(); showToast("已恢复内置 20000 词库"); }
     function applyTheme(theme) { document.documentElement.dataset.theme = theme; localStorage.setItem("vocabTheme", theme); }
