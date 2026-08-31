@@ -96,7 +96,7 @@ python3 start_vocab.py
 - HCONet 网页版设置中的“保存到云端”会按需生成 UTF-8 CSV，只包含变化过的单词调度、设置、统计、定级数据、主题和全局学习位置，然后通过 Drive App Data API 上传；单文件上限为 4 MiB。
 - 云存档固定命名为 `meanease_personal_data.csv`，保存在用户专属的 MeanEase 应用数据目录。保存和恢复都必须由用户点击触发，不做后台或定时同步。
 - 客户端记录最近一次已知云端 revision。发现云端 revision 不一致时，必须在覆盖前确认；后端仍以原子 revision 检查作为并发写入的最后防线。
-- 独立 `127.0.0.1:8765` 版没有 HCONet 域 Cookie，只支持本地进度与 JSON 导入导出；云存档支持 `https://meanease.hconet.com` 和开发域 `http://meanease.hconet.localhost`。
+- 独立 `127.0.0.1:8765` 版没有 HCONet 域 Cookie，只支持本地进度与 JSON 导入导出；云存档支持 `https://meanease.hconet.com` 和开发域 `http://meanease.hconet.test`。
 
 使用 IndexedDB 是必要的。将 20,000 条完整词条连同调度状态写入 LocalStorage 会超过常见容量限制，也不适合频繁的逐卡更新。
 
