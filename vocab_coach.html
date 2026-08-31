@@ -501,8 +501,8 @@
     function exitPlacement() { $("placement-dialog").close(); showToast(app.placementDraft ? "测试进度已保存，下次可以继续" : "定级结果已保存"); }
     function speak(text) { if (!text || !("speechSynthesis" in window)) { showToast("当前浏览器不支持语音合成"); return; } speechSynthesis.cancel(); const utterance = new SpeechSynthesisUtterance(text); utterance.lang = "en-US"; utterance.rate = .88; const voices = speechSynthesis.getVoices(); utterance.voice = voices.find((voice) => voice.lang === "en-US") || voices.find((voice) => voice.lang.startsWith("en")) || null; speechSynthesis.speak(utterance); }
     function showToast(message) { clearTimeout(app.toastTimer); $("toast").textContent = message; $("toast").classList.add("show"); app.toastTimer = setTimeout(() => $("toast").classList.remove("show"), 2600); }
-    function cloudApiBase() { return location.hostname.endsWith(".localhost") ? "http://api.hconet.localhost" : "https://api.hconet.com"; }
-    function cloudSupported() { return location.hostname === "meanease.hconet.com" || location.hostname === "meanease.hconet.localhost"; }
+    function cloudApiBase() { return location.hostname === "meanease.hconet.test" ? "http://api.hconet.test" : "https://api.hconet.com"; }
+    function cloudSupported() { return location.hostname === "meanease.hconet.com" || location.hostname === "meanease.hconet.test"; }
     function setCloudStatus(message) { $("cloud-status").textContent = message; }
     function csvCell(value) { const text = String(value ?? ""); return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; }
     function isChangedPersonalCard(card) {
