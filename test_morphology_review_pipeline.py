@@ -14,6 +14,7 @@ from morphology_review_pipeline import (
     ENGRA_SOURCE,
     WIKTIONARY_LICENSE,
     canonical_wiktionary_source,
+    is_allowed_manual_source,
     merge_reviews,
     prepare_batches,
     validate_etymology,
@@ -59,6 +60,23 @@ class MorphologyReviewPipelineTests(unittest.TestCase):
         motel = "motel：由 motor 和 hotel 混合而来；今义：汽车旅馆。"
         self.assertEqual(
             validate_etymology("motel", motel, canonical_wiktionary_source("motel"), WIKTIONARY_LICENSE), []
+        )
+
+    def test_allows_only_case_variant_of_verified_wiktionary_title(self) -> None:
+        self.assertTrue(
+            is_allowed_manual_source(
+                "brazilian", "https://en.wiktionary.org/wiki/Brazilian", WIKTIONARY_LICENSE
+            )
+        )
+        self.assertFalse(
+            is_allowed_manual_source(
+                "brazilian", "https://en.wiktionary.org/wiki/Brazil", WIKTIONARY_LICENSE
+            )
+        )
+        self.assertFalse(
+            is_allowed_manual_source(
+                "brazilian", "https://en.wiktionary.org/wiki/brazilians", WIKTIONARY_LICENSE
+            )
         )
 
     def test_merges_only_complete_manual_review_batch(self) -> None:

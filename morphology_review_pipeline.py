@@ -72,8 +72,16 @@ def canonical_wiktionary_source(word: str) -> str:
 
 
 def is_allowed_manual_source(word: str, source: str, licence: str) -> bool:
+    canonical_source = canonical_wiktionary_source(word)
     return (source == ENGRA_SOURCE and licence == ENGRA_LICENSE) or (
-        source == canonical_wiktionary_source(word) and licence == WIKTIONARY_LICENSE
+        source == canonical_source and licence == WIKTIONARY_LICENSE
+    ) or (
+        # A lowercase input can legitimately point to a capitalized English
+        # Wiktionary title (for example, brazilian -> Brazilian).  This keeps
+        # the provenance check fail-closed: only title capitalization may vary.
+        licence == WIKTIONARY_LICENSE
+        and source.startswith(WIKTIONARY_SOURCE_PREFIX)
+        and source.casefold() == canonical_source.casefold()
     )
 
 
