@@ -20,6 +20,7 @@ reform / re-form；re-：重新、再次；form：形式、组成；reform：改
 
 - `/` 后至少有两个词素，拼接后必须与单词完全一致；
 - 每个词素都要有中文解释，末尾要有该词的中文释义；
+- 若来源页明确列出连接成分，展示短注也必须如实列出；例如 `spokeswoman` 需要说明 `spoke + -s- + woman`，不能省略 `-s-` 后伪写成 `spoke + woman`；
 - 不把 `-s`、`-es`、`-ed`、`-ing` 作为构词后缀；
 - 不把 `detail` 误写成 `de-tail`，也不把 `program` 误写成 `pro-gram`。
 - `engra`/MIT 来源只能搭配这一种透明、逐字拼接的格式；若词尾有删改（如 `notable → notably`）、只是屈折形式、或是混成词（如 `motel`），不可为了沿用 MIT 写成不合法拆分，应人工改用该词的 canonical Wiktionary 页面和 `CC BY-SA 4.0`，再写词源摘要。
