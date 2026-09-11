@@ -159,6 +159,35 @@ class MorphologyReviewPipelineTests(unittest.TestCase):
             )
             self.assertEqual(report["completed_batches"], [selected_batch])
 
+    def test_non_accepted_review_clears_unpublished_existing_wording(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            source = temporary / "source.csv"
+            write_fixture(source, [{
+                "word": "mama", "base_word": "mama", "meaning": "n. 妈妈",
+                "etymology": "mama：源自中古法语 maman，可追溯至法语 maman；今义：妈妈。",
+                "etymology_source": canonical_wiktionary_source("mama"), "etymology_license": WIKTIONARY_LICENSE,
+            }])
+            review_dir = temporary / "review"
+            manifest = prepare_batches(source, review_dir, batch_size=1)
+            batch_id = manifest["batches"][0]["id"]
+            response = {
+                "batch_id": batch_id, "word_key": "mama", "word": "mama", "status": "needs_review",
+                "note": "", "source_basis": "", "source_license": "", "evidence_summary": "",
+                "review_flags": ["来源不确定，暂不发布说明"],
+            }
+            (review_dir / "responses" / "mama.jsonl").write_text(
+                json.dumps(response, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
+            output = temporary / "output.csv"
+            report = merge_reviews(source, review_dir / "manifest.json", review_dir / "responses", output, None)
+            self.assertEqual(report["review_status_counts"], {"needs_review": 1})
+            with output.open(encoding="utf-8-sig", newline="") as handle:
+                output_row = next(csv.DictReader(handle))
+            self.assertEqual(output_row["etymology"], "")
+            self.assertEqual(output_row["etymology_source"], "")
+            self.assertEqual(output_row["etymology_license"], "")
+
 
 if __name__ == "__main__":
     unittest.main()

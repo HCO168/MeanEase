@@ -64,6 +64,8 @@ ad：截短自 advertisement；今义：广告。
 {"batch_id":"<原 batch_id>","word_key":"example","word":"example","status":"needs_review","note":"","source_basis":"","source_license":"","evidence_summary":"","review_flags":["需要进一步人工核对来源"]}
 ```
 
+合并器只发布 `accepted` 的人工说明；`needs_review`、`uncertain` 与 `not_decomposable` 在输出副本中都会清空词源字段，避免旧的未经确认说明继续显示。它不会覆写输入 CSV，后续人工复核得到 `accepted` 后才会写入新的输出副本。
+
 ## 批次流程
 
 1. 运行 `prepare` 只生成固定输入快照和 JSONL 批次；它不会生成解释。

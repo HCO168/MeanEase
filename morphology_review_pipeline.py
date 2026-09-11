@@ -439,7 +439,11 @@ def merge_reviews(
                 row["etymology"] = str(record["note"]).strip()
                 row["etymology_source"] = str(record["source_basis"]).strip()
                 row["etymology_license"] = str(record["source_license"]).strip()
-            elif status == "not_decomposable":
+            else:
+                # A non-accepted review intentionally publishes no wording.
+                # The original CSV is never overwritten here; this only keeps
+                # the separate merge output fail-closed until a reviewer
+                # supplies an accepted replacement.
                 row["etymology"] = ""
                 row["etymology_source"] = ""
                 row["etymology_license"] = ""
