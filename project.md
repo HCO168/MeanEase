@@ -17,7 +17,9 @@
 | `build_authentic_7000.py` | 从 ECDICT 重新构建可信核心词库 |
 | `apply_cefr_levels.py` | 从 American Oxford 3000/5000 PDF 添加 CEFR 学习难度 |
 | `enrich_wiktionary_etymology.py` | 流式筛选 Wiktextract 数据并补充中间英文词源 |
-| `enrich_chinese_word_formation.py` | 用 engra 结构关系和 Wiktionary 来源生成中文构词短注 |
+| `enrich_chinese_word_formation.py` | 历史自动构词脚本；不用于当前人工审校回填 |
+| `morphology_review_pipeline.py` | 只分发、验证和合并人工构词审校批次，不生成说明文字 |
+| `morphology_review_guide.md` | 人工逐词审校格式、来源与质量规范 |
 | `enrich_tatoeba_examples.py` | 从 Tatoeba 校对语料补充可溯源双语例句 |
 | `audit_vocabulary.py` | 检查 CSV 结构、覆盖率、重复词和模板化伪数据 |
 
@@ -140,7 +142,7 @@ word,base_word,phonetic,pos,meaning,level,level_source,placement_eligible,colloc
 
 难度采用保守的多源合并：Oxford 3000/5000 优先，CEFR-J Wordlist 1.5 只补充未匹配的 A1-B2 词，Octanove Vocabulary Profile 1.0 再补充 C1-C2。CEFR-J 数据归东京外国语大学投野研究室所有，可在正确署名下免费用于研究和商业用途；Octanove C1/C2 数据采用 CC BY-SA 4.0。没有任何来源明确分级的词保留为 `Unrated`，不会因为“不在 Oxford 核心词表”就自动升级为 Beyond C1。
 
-构词短注优先使用 MIT 许可的 engra 结构化词根关系，生成 `reform / re-form；re-：重新、再次；form：形式、组成；reform：改革、改正。` 这类中文记忆说明。没有可靠拆解时，只把 Wiktionary 中能明确识别的来源语言压缩成中文短句；无法确定就留空，不猜词根。
+构词短注现在必须由人工逐词审校员撰写。可验证的派生关系写成 `reform / re-form；re-：重新、再次；form：形式、组成；reform：改革、改正。` 这类中文记忆说明；不能透明拆解的词须由人工核对 English Wiktionary 后写成简短中文词源摘要。程序不得按字母片段自动生成或改写构词说明；无法确定时留空，不猜词根。`engra`（MIT）与 English Wiktionary（CC BY-SA 4.0）仍是可用的依据来源，但每条说明都需要人工判断其是否支持当前词义。
 
 双语例句来自 Tatoeba 的英中句对，经 ManyThings 筛选为母语者或已校对内容。构建器只接受目标词的完整单词匹配，优先选择简体、长度适中的句子，并过滤不适合通用学习卡片的敏感内容。每个非空例句保存 Tatoeba 原句页面和 `CC BY 2.0 FR` 许可证。ECDICT 不稳定提供搭配，因此搭配仍保持为空。
 
@@ -150,9 +152,17 @@ word,base_word,phonetic,pos,meaning,level,level_source,placement_eligible,colloc
 python3 build_authentic_7000.py
 python3 apply_cefr_levels.py
 python3 enrich_wiktionary_etymology.py
-python3 enrich_chinese_word_formation.py
 python3 enrich_tatoeba_examples.py
+python3 morphology_review_pipeline.py prepare --input us_core_7000_authentic.csv --output-dir tmp/morphology-review --batch-size 100
 ```
+
+随后由人工审校员按 `morphology_review_guide.md` 完成一个完整 JSONL 批次，再写入不同于正式词库的新文件：
+
+```bash
+python3 morphology_review_pipeline.py merge --input us_core_7000_authentic.csv --manifest tmp/morphology-review/manifest.json --responses-dir tmp/morphology-review/responses --output reviewed_vocabulary.csv --report tmp/morphology-review/report.json
+```
+
+只有审校、抽样与完整性检查完成后，才可用确认过的输出作为下一轮输入快照。禁止执行旧 `enrich_chinese_word_formation.py` 来补写本次人工词源项目。
 
 若需要保留另一个 CSV 的词序，可显式传入：
 
@@ -176,7 +186,7 @@ python3 audit_vocabulary.py us_core_7000_authentic.csv
 - 音标是否只是原词加斜杠；
 - `use word`、通用词源、模板例句等伪数据模式。
 
-当前默认词库的构建结果：
+人工逐词重审启动前的默认词库基线：
 
 - 20,000 行，无重复词；
 - 中文释义覆盖率 100%；
@@ -185,7 +195,7 @@ python3 audit_vocabulary.py us_core_7000_authentic.csv
 - 9,696 个词获得多源 CEFR 分级，10,304 个词保守地保持未定级；
 - Beyond C1 从原先错误兜底的 13,765 个缩减为 548 个有明确 Octanove C2 证据的词；
 - 定级测试池为 A1 1,130、A2 1,036、B1 854、B2 1,565、C1 2,130、Beyond C1 548 个核心词；
-- 中文构词或来源短注覆盖 13,677 个词，约 68.4%；
+- 中文构词或来源短注覆盖 13,677 个词，约 68.4%；其中仍有待人工复核的旧自动拆分，不能把此覆盖率当作人工审校完成率；
 - 可溯源 Tatoeba 双语例句覆盖 4,831 个词，约 24.2%；
 - 所有非空构词和例句均附来源页面与许可证；
 - 未填充任何模板化搭配或程序生成例句。
@@ -208,8 +218,15 @@ python3 audit_vocabulary.py us_core_7000_authentic.csv
 
 ```bash
 node -e "/* 提取并编译 HTML 内联脚本 */"
-python3 -m py_compile build_authentic_7000.py apply_cefr_levels.py enrich_wiktionary_etymology.py enrich_chinese_word_formation.py enrich_tatoeba_examples.py audit_vocabulary.py
+python3 -m py_compile build_authentic_7000.py apply_cefr_levels.py enrich_wiktionary_etymology.py enrich_tatoeba_examples.py morphology_review_pipeline.py audit_vocabulary.py
+python3 -m unittest -v test_morphology_review_pipeline.py
 python3 audit_vocabulary.py us_core_7000_authentic.csv
+```
+
+全量人工审校完成后，还必须执行：
+
+```bash
+python3 audit_vocabulary.py us_core_7000_authentic.csv --strict-morphology
 ```
 
 并使用真实 Chromium 浏览器验证了：测试逐题存盘、退出续测、结果自动保存、页面刷新、Python 服务停止后同端口重启、可视化关闭、桌面卡片与评级区布局、只含变化记录的 schema v5 备份下载、SHA-256 校验、篡改拒绝及事务式恢复；另以含静态词典字段的 schema v4 文件验证了本地转换、恢复一条个人记录、自动下载 v5 文件，以及转换结果不会携带旧释义或例句。

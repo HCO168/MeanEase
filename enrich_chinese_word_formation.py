@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Replace long English etymologies with concise Chinese word-formation notes.
+"""Historical automatic word-formation generator; disabled for MeanEase.
 
-Structured root relationships come from the MIT-licensed engra project. When
-no reliable decomposition exists, recognizable Wiktionary origin languages
-are summarized in Chinese. Uncertain analyses are intentionally left blank.
+MeanEase now requires every Chinese morphology or origin note to be written by
+a human reviewer. The implementation remains here for historical inspection,
+but its command-line entry point intentionally refuses to write data. Use
+``morphology_review_pipeline.py prepare`` and ``morphology_review_guide.md``
+instead; that pipeline only transports and validates human-authored notes.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ import argparse
 import csv
 import io
 import re
+import sys
 import urllib.request
 import zipfile
 from collections import Counter, defaultdict
@@ -205,14 +208,12 @@ def enrich(input_path: Path, output_path: Path, engra_url: str) -> tuple[int, in
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, default=Path("us_core_7000_authentic.csv"))
-    parser.add_argument("--output", type=Path, default=Path("us_core_7000_authentic.csv"))
-    parser.add_argument("--engra-url", default=ENGRA_ARCHIVE)
-    args = parser.parse_args()
-    total, formations, origins = enrich(args.input, args.output, args.engra_url)
-    print(f"Wrote {total:,} rows; Chinese formations: {formations:,}; concise origin notes: {origins:,}; total: {formations + origins:,}.")
-    return 0
+    print(
+        "Automatic Chinese morphology generation is disabled. "
+        "Use morphology_review_pipeline.py to validate and merge human-authored review batches.",
+        file=sys.stderr,
+    )
+    return 2
 
 
 if __name__ == "__main__":
