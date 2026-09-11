@@ -196,7 +196,7 @@ def _validate_origin(word: str, note: str) -> list[str]:
         return []
     if (body.startswith("借自") and any(character.isalpha() for character in body)) or (
         body.startswith("由") and (
-            "构成" in body or "组合而来" in body or "发展而来" in body or "进入英语" in body
+            "构成" in body or "组合而来" in body or "混合而来" in body or "发展而来" in body or "进入英语" in body
         )
     ):
         return []

@@ -56,6 +56,10 @@ class MorphologyReviewPipelineTests(unittest.TestCase):
         self.assertEqual(
             validate_etymology("ok", ok, canonical_wiktionary_source("ok"), WIKTIONARY_LICENSE), []
         )
+        motel = "motel：由 motor 和 hotel 混合而来；今义：汽车旅馆。"
+        self.assertEqual(
+            validate_etymology("motel", motel, canonical_wiktionary_source("motel"), WIKTIONARY_LICENSE), []
+        )
 
     def test_merges_only_complete_manual_review_batch(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
