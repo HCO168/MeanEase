@@ -43,7 +43,7 @@ ad：截短自 advertisement；今义：广告。
 
 ## JSONL 输出格式
 
-每行是一个对象。已有来源若能支持人工说明，必须原样保留 `source_basis` 与 `source_license`；若旧来源本身不支持新的人工结论，审校员可以人工核对并改为该词对应的 English Wiktionary 页面与 `CC BY-SA 4.0`，同时在 `evidence_summary` 说明替换理由。原来没有来源而人工查到词源时，也只能使用对应的 English Wiktionary 页面和 `CC BY-SA 4.0`。
+每行是一个对象。已有来源若能支持人工说明，必须原样保留 `source_basis` 与 `source_license`；若旧来源本身不支持新的人工结论，审校员可以人工核对并改为该词对应的 English Wiktionary 页面与 `CC BY-SA 4.0`，同时在 `evidence_summary` 说明替换理由。原来没有来源而人工查到词源时，也只能使用对应的 English Wiktionary 页面和 `CC BY-SA 4.0`。Wiktionary URL 必须严格使用输入词在批次中的规范路径，例如输入词为 `korean` 时使用 `https://en.wiktionary.org/wiki/korean`，不因词义是专名而自行改写为 `Korean`。
 
 ```json
 {"batch_id":"<原 batch_id>","word_key":"reform","word":"reform","status":"accepted","note":"reform / re-form；re-：重新、再次；form：形式、组成；reform：改革、改正。","source_basis":"https://github.com/eslsoft/engra","source_license":"MIT","evidence_summary":"人工核对 engra 的 form 词族与 reform 词条；re- 和 form 的拼接与词义相符。","review_flags":[]}
