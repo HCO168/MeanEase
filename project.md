@@ -147,7 +147,8 @@ word,base_word,phonetic,pos,meaning,level,level_source,placement_eligible,colloc
 
 ```bash
 python3 morphology_luna_batch.py prepare
-OPENAI_API_KEY=... python3 morphology_luna_batch.py submit
+# 先在本机安全环境设置 OPENAI_API_KEY，不要把密钥写入仓库或命令历史
+python3 morphology_luna_batch.py submit
 python3 morphology_luna_batch.py status
 python3 morphology_luna_batch.py download
 python3 morphology_luna_batch.py parse
