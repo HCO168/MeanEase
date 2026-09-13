@@ -18,7 +18,8 @@
 | `apply_cefr_levels.py` | 从 American Oxford 3000/5000 PDF 添加 CEFR 学习难度 |
 | `enrich_tatoeba_examples.py` | 从 Tatoeba 校对语料补充可溯源双语例句 |
 | `audit_vocabulary.py` | 检查 CSV 结构、覆盖率、重复词和模板化伪数据 |
-| `morphology_luna_batch.py` | 用 OpenAI Batch 生成结构化构词草稿并校验结果；默认 Luna，也可指定 Nano；不会自动写入正式词库 |
+| `morphology_luna_batch.py` | 用 OpenAI Batch 生成结构化构词草稿并校验结果；默认 Luna，也可指定其他兼容模型；不会自动写入正式词库 |
+| `apply_morphology_candidates.py` | 只把 `ok + high + 无 issue/warning` 的已验收候选写入正式 CSV，并要求来源/许可字段同时写入 |
 
 ## 启动
 
@@ -139,7 +140,7 @@ word,base_word,phonetic,pos,meaning,level,level_source,placement_eligible,colloc
 
 难度采用保守的多源合并：Oxford 3000/5000 优先，CEFR-J Wordlist 1.5 只补充未匹配的 A1-B2 词，Octanove Vocabulary Profile 1.0 再补充 C1-C2。CEFR-J 数据归东京外国语大学投野研究室所有，可在正确署名下免费用于研究和商业用途；Octanove C1/C2 数据采用 CC BY-SA 4.0。没有任何来源明确分级的词保留为 `Unrated`，不会因为“不在 Oxford 核心词表”就自动升级为 Beyond C1。
 
-正式词库使用独立的 `morphology`、`morphology_source`、`morphology_license` 字段承载面向学习者的构词拆解。旧 `etymology*` 字段已经从运行结构中移除，不再作为兼容字段读取。`morphology_luna_batch.py` 可以把 20,000 词按小批次交给 OpenAI Batch 模型生成结构化构词草稿，但模型输出只进入忽略目录 `tmp/morphology-luna/` 的候选 JSONL，不会自动写入正式 CSV。核心词无法可靠拆解时要求返回 `not_decomposable`，不确定项返回 `needs_review`；历史语言传入链会被本地校验拒绝。
+正式词库使用独立的 `morphology`、`morphology_source`、`morphology_license` 字段承载面向学习者的构词拆解。旧 `etymology*` 字段已经从运行结构中移除，不再作为兼容字段读取。2026-09-13 的正式 Luna Medium Batch 共覆盖 20,000 词；经本地 validator v3 过滤后，只把 8,778 条 `status=ok + confidence=high + 无 issue/warning` 的候选写入正式 CSV，覆盖率 43.89%。其余 `not_decomposable` 与 review 项保持空白，不把不确定分析写入产品数据。修改前完整 CSV、原始 Batch output、候选与 review 文件均保存在根仓库 `discard/20260913-meanease-morphology-production/`。
 
 ### 批量构词草稿
 
@@ -157,7 +158,7 @@ python3 morphology_luna_batch.py download
 python3 morphology_luna_batch.py parse
 ```
 
-不要把 API key 写入仓库或命令历史；推荐在本机安全环境中设置 `OPENAI_API_KEY`。`prepare` 生成 `tmp/morphology-luna/input.jsonl` 和 SHA-256 manifest；`status-summary` 会逐个读取匹配的 state 文件并实时查询 Batch API，汇总 Batch 状态数量和 `request_counts`，同时保留每个 Batch 的明细；`parse` 生成完整候选、低置信/异常复核清单和实际 token 使用统计。脚本会拒绝历史词源语言链、重复输出、未知单词、非法词素边界、重复构词成分和无说明的拼写不匹配；另外把“root 本身也是正式词表中的独立词”、“high-confidence 不可拆但存在常见生产性词缀 + 已知基础词候选”，以及“parts 已可直接拼成目标词但 `spelling_note` 仍声称发生脱落/替换/双写等表面变化”标为 warning 并送入复核，而不是自动判错。`valid_ok_high` 只统计 high confidence、无 issue 且无 warning 的 `ok` 项。正式 20,000 词生产配置冻结为 Prompt v6 + `gpt-5.6-luna` + `reasoning=medium` + 25 词/request；正式 `us_core_7000_authentic.csv` 只有经过后续复核后才能单独更新。
+不要把 API key 写入仓库或命令历史；推荐在本机安全环境中设置 `OPENAI_API_KEY`。`prepare` 生成 `tmp/morphology-luna/input.jsonl` 和 SHA-256 manifest；`status-summary` 会逐个读取匹配的 state 文件并实时查询 Batch API，汇总 Batch 状态数量和 `request_counts`，同时保留每个 Batch 的明细；`parse` 生成完整候选、低置信/异常复核清单和实际 token 使用统计。脚本会拒绝历史词源语言链、重复输出、未知单词、非法词素边界、重复构词成分和无说明的拼写不匹配；另外把“root 本身也是正式词表中的独立词”、“high-confidence 不可拆但存在常见生产性词缀 + 已知基础词候选”，以及“parts 已可直接拼成目标词但 `spelling_note` 仍声称发生脱落/替换/双写等表面变化”标为 warning 并送入复核，而不是自动判错。`valid_ok_high` 只统计 high confidence、无 issue 且无 warning 的 `ok` 项。正式 20,000 词生产配置冻结为 Prompt v6 + `gpt-5.6-luna` + `reasoning=medium` + 25 词/request；正式 `us_core_7000_authentic.csv` 只能通过 `apply_morphology_candidates.py` 从已验证候选中显式更新；脚本拒绝覆盖已有构词数据。当前正式落库规则为 `ok + high + 无 issue/warning + note 非空`。
 
 双语例句来自 Tatoeba 的英中句对，经 ManyThings 筛选为母语者或已校对内容。构建器只接受目标词的完整单词匹配，优先选择简体、长度适中的句子，并过滤不适合通用学习卡片的敏感内容。每个非空例句保存 Tatoeba 原句页面和 `CC BY 2.0 FR` 许可证。ECDICT 不稳定提供搭配，因此搭配仍保持为空。
 
@@ -201,7 +202,7 @@ python3 audit_vocabulary.py us_core_7000_authentic.csv
 - 9,696 个词获得多源 CEFR 分级，10,304 个词保守地保持未定级；
 - Beyond C1 从原先错误兜底的 13,765 个缩减为 548 个有明确 Octanove C2 证据的词；
 - 定级测试池为 A1 1,130、A2 1,036、B1 854、B2 1,565、C1 2,130、Beyond C1 548 个核心词；
-- `morphology*` 已完成结构切换，本阶段不迁移旧历史词源文本，因此构词内容暂为空；
+- `morphology*` 已完成结构切换；8,778 个词已写入经 validator v3 筛选的学习型构词拆解，覆盖 43.89%，其余词保持空白等待后续复核或明确不可拆；
 - 可溯源 Tatoeba 双语例句覆盖 4,831 个词，约 24.2%；
 - 所有非空构词和例句均附来源页面与许可证；
 - 未填充任何模板化搭配或程序生成例句。
