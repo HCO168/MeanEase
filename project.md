@@ -143,7 +143,7 @@ word,base_word,phonetic,pos,meaning,level,level_source,placement_eligible,colloc
 
 ### 批量构词草稿
 
-构词批处理使用 OpenAI Batch API 的 `/v1/responses`，默认模型为 `gpt-5.6-luna`，也可通过 `--model` 指定其他兼容模型。脚本会按模型选择默认 reasoning：Luna 使用 `none`，`gpt-5-nano` 使用 `minimal`；也可用 `--reasoning-effort` 显式覆盖。默认每个请求 25 个词，`max_output_tokens=20000`（该预算同时覆盖 reasoning tokens 与最终 JSON 输出），并通过 Structured Outputs 返回 `status / parts / spelling_note / confidence`。提示词只保留可泛化的判定原则，不包含针对具体单词的示例或指定答案，也不预设拆解深度：模型可保留现代基础词，也可完整拆到稳定的 bound root 与词缀；选择标准是构词成分真实、可复用、当前语义成立且对学习有价值，而不是机械追求更浅或更深。输入只包含静态词典中的单词、基础词、词性和中文释义，不包含个人学习数据。
+构词批处理使用 OpenAI Batch API 的 `/v1/responses`，默认模型为 `gpt-5.6-luna`，也可通过 `--model` 指定其他兼容模型。脚本会按模型选择默认 reasoning：Luna 使用 `none`，`gpt-5-nano` 使用 `minimal`；也可用 `--reasoning-effort` 显式覆盖。默认每个请求 25 个词，`max_output_tokens=20000`（该预算同时覆盖 reasoning tokens 与最终 JSON 输出），并通过 Structured Outputs 返回 `status / parts / spelling_note / confidence`。提示词只保留可泛化的判定原则，不包含针对具体单词的示例或指定答案：模型可识别现代基础词、bound root、前缀、后缀和 combining form，不限制成分数量或组合方式；选择标准是构词成分真实、可复用、当前语义成立且对学习有价值。输入只包含静态词典中的单词、基础词、词性和中文释义，不包含个人学习数据。
 
 ```bash
 python3 morphology_luna_batch.py prepare
