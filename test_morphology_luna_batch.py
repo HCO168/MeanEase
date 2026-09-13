@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import csv
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import morphology_luna_batch as batch
 
@@ -101,6 +104,25 @@ class MorphologyLunaBatchTests(unittest.TestCase):
             self.assertIn("interrogation / inter-rog-ate-ion", parsed[0]["note"])
             self.assertIn("rog：问、请求（词根）", parsed[0]["note"])
             self.assertEqual(parsed[1]["note"], "")
+
+    def test_status_summary_counts_batches_and_requests(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "a-state.json").write_text(json.dumps({"batch_id": "batch-a", "model": "model-a"}), encoding="utf-8")
+            (root / "b-state.json").write_text(json.dumps({"batch_id": "batch-b", "model": "model-b"}), encoding="utf-8")
+            responses = {
+                "/batches/batch-a": {"id": "batch-a", "status": "completed", "request_counts": {"total": 2, "completed": 2, "failed": 0}},
+                "/batches/batch-b": {"id": "batch-b", "status": "in_progress", "request_counts": {"total": 3, "completed": 1, "failed": 0}},
+            }
+            output = io.StringIO()
+            with patch.object(batch, "api_json", side_effect=lambda method, path: responses[path]), redirect_stdout(output):
+                result = batch.status_summary(SimpleNamespace(state_dir=root, pattern="*-state.json"))
+            self.assertEqual(result, 0)
+            summary = json.loads(output.getvalue())
+            self.assertEqual(summary["batch_count"], 2)
+            self.assertEqual(summary["status_counts"], {"completed": 1, "in_progress": 1})
+            self.assertEqual(summary["request_counts"], {"completed": 3, "failed": 0, "total": 5})
+            self.assertEqual(summary["error_count"], 0)
 
     def test_historical_origin_text_is_rejected(self) -> None:
         item = {

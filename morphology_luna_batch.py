@@ -328,6 +328,48 @@ def status(args: argparse.Namespace) -> int:
     return 0
 
 
+def status_summary(args: argparse.Namespace) -> int:
+    state_paths = sorted(args.state_dir.glob(args.pattern))
+    if not state_paths:
+        raise FileNotFoundError(f"no state files matched {args.state_dir / args.pattern}")
+
+    status_counts: dict[str, int] = {}
+    request_counts: dict[str, int] = {}
+    batches: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+    for state_path in state_paths:
+        try:
+            state = load_state(state_path)
+            batch_id = str(state["batch_id"])
+            batch = api_json("GET", f"/batches/{batch_id}")
+            status_value = str(batch.get("status") or "unknown")
+            status_counts[status_value] = status_counts.get(status_value, 0) + 1
+            counts = batch.get("request_counts") or {}
+            for key, value in counts.items():
+                if isinstance(value, int):
+                    request_counts[key] = request_counts.get(key, 0) + value
+            batches.append({
+                "state": str(state_path),
+                "batch_id": batch.get("id") or batch_id,
+                "model": state.get("model"),
+                "status": status_value,
+                "request_counts": counts,
+            })
+        except (OSError, KeyError, ValueError, RuntimeError, json.JSONDecodeError) as exc:
+            errors.append({"state": str(state_path), "error": str(exc)})
+
+    shown = {
+        "batch_count": len(state_paths),
+        "status_counts": dict(sorted(status_counts.items())),
+        "request_counts": dict(sorted(request_counts.items())),
+        "error_count": len(errors),
+        "batches": batches,
+        "errors": errors,
+    }
+    print(json.dumps(shown, ensure_ascii=False, indent=2))
+    return 0 if not errors else 1
+
+
 def download(args: argparse.Namespace) -> int:
     state = load_state(args.state)
     batch = api_json("GET", f"/batches/{state['batch_id']}")
@@ -534,6 +576,11 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser = subparsers.add_parser("status", help="show current batch status")
     status_parser.add_argument("--state", type=Path, default=DEFAULT_WORKDIR / "batch-state.json")
     status_parser.set_defaults(func=status)
+
+    summary_parser = subparsers.add_parser("status-summary", help="summarize live status across many Batch state files")
+    summary_parser.add_argument("--state-dir", type=Path, default=DEFAULT_WORKDIR)
+    summary_parser.add_argument("--pattern", default="*-state.json")
+    summary_parser.set_defaults(func=status_summary)
 
     download_parser = subparsers.add_parser("download", help="download completed batch output")
     download_parser.add_argument("--state", type=Path, default=DEFAULT_WORKDIR / "batch-state.json")

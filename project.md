@@ -151,11 +151,13 @@ python3 morphology_luna_batch.py prepare
 # 先在本机安全环境设置 OPENAI_API_KEY，不要把密钥写入仓库或命令历史
 python3 morphology_luna_batch.py submit
 python3 morphology_luna_batch.py status
+# 汇总目录中多个 Batch 的实时状态和请求数量：
+python3 morphology_luna_batch.py status-summary --state-dir tmp/morphology-luna --pattern '*-state.json'
 python3 morphology_luna_batch.py download
 python3 morphology_luna_batch.py parse
 ```
 
-不要把 API key 写入仓库或命令历史；推荐在本机安全环境中设置 `OPENAI_API_KEY`。`prepare` 生成 `tmp/morphology-luna/input.jsonl` 和 SHA-256 manifest；`parse` 生成完整候选、低置信/异常复核清单和实际 token 使用统计。脚本会拒绝历史词源语言链、重复输出、未知单词、非法词素边界和无说明的拼写不匹配。正式 `us_core_7000_authentic.csv` 只有经过后续复核后才能单独更新。
+不要把 API key 写入仓库或命令历史；推荐在本机安全环境中设置 `OPENAI_API_KEY`。`prepare` 生成 `tmp/morphology-luna/input.jsonl` 和 SHA-256 manifest；`status-summary` 会逐个读取匹配的 state 文件并实时查询 Batch API，汇总 Batch 状态数量和 `request_counts`，同时保留每个 Batch 的明细；`parse` 生成完整候选、低置信/异常复核清单和实际 token 使用统计。脚本会拒绝历史词源语言链、重复输出、未知单词、非法词素边界和无说明的拼写不匹配。正式 `us_core_7000_authentic.csv` 只有经过后续复核后才能单独更新。
 
 双语例句来自 Tatoeba 的英中句对，经 ManyThings 筛选为母语者或已校对内容。构建器只接受目标词的完整单词匹配，优先选择简体、长度适中的句子，并过滤不适合通用学习卡片的敏感内容。每个非空例句保存 Tatoeba 原句页面和 `CC BY 2.0 FR` 许可证。ECDICT 不稳定提供搭配，因此搭配仍保持为空。
 
