@@ -11,11 +11,11 @@ from collections import Counter
 from pathlib import Path
 
 
-REQUIRED = {"word", "phonetic", "pos", "meaning", "level", "level_source", "placement_eligible", "collocation", "etymology", "etymology_source", "etymology_license", "example_en", "example_zh", "example_source", "example_license"}
+REQUIRED = {"word", "phonetic", "pos", "meaning", "level", "level_source", "placement_eligible", "collocation", "morphology", "morphology_source", "morphology_license", "example_en", "example_zh", "example_source", "example_license"}
 GENERIC_PATTERNS = {
     "meaning": re.compile(r"^(常用核心词|核心常用词|高频日常核心词|日常核心词|核心高频词)$"),
     "collocation": re.compile(r"^(use|apply|take)\s+", re.I),
-    "etymology": re.compile(r"现代美语高频基础词汇|源自印欧/日耳曼/古英语核心词根演变"),
+    "morphology": re.compile(r"现代美语高频基础词汇|源自印欧/日耳曼/古英语核心词根演变"),
     "example_en": re.compile(r"It is (essential|practical) to (understand|master)|widely utilized across academic", re.I),
 }
 
@@ -32,6 +32,7 @@ def audit(path: Path) -> dict:
         "file": str(path),
         "rows": len(rows),
         "missing_columns": sorted(REQUIRED - headers),
+        "legacy_columns": sorted(headers & {"etymology", "etymology_source", "etymology_license"}),
         "empty_words": len(rows) - len(nonempty_words),
         "duplicate_words": sum(count - 1 for count in Counter(nonempty_words).values() if count > 1),
         "coverage": {},
@@ -48,8 +49,8 @@ def audit(path: Path) -> dict:
         for row in rows
     )
     result["provenance_mismatches"] = sum(
-        bool(row.get("etymology", "").strip())
-        != bool(row.get("etymology_source", "").strip() and row.get("etymology_license", "").strip())
+        bool(row.get("morphology", "").strip())
+        != bool(row.get("morphology_source", "").strip() and row.get("morphology_license", "").strip())
         for row in rows
     )
     result["provenance_mismatches"] += sum(
@@ -57,7 +58,7 @@ def audit(path: Path) -> dict:
         != bool(row.get("example_source", "").strip() and row.get("example_license", "").strip())
         for row in rows
     )
-    result["critical_ok"] = not result["missing_columns"] and not result["empty_words"] and not result["duplicate_words"] and not result["provenance_mismatches"]
+    result["critical_ok"] = not result["missing_columns"] and not result["legacy_columns"] and not result["empty_words"] and not result["duplicate_words"] and not result["provenance_mismatches"]
     return result
 
 
@@ -73,6 +74,7 @@ def main() -> int:
         for report in reports:
             print(f"{report['file']}: {report['rows']} rows")
             print(f"  missing columns: {report['missing_columns'] or 'none'}")
+            print(f"  legacy columns: {report['legacy_columns'] or 'none'}")
             print(f"  duplicates: {report['duplicate_words']}; fake phonetics: {report['fake_phonetic']}")
             print(f"  provenance mismatches: {report['provenance_mismatches']}")
             print(f"  coverage: {report['coverage']}")
