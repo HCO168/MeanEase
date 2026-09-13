@@ -42,8 +42,25 @@ class MorphologyLunaBatchTests(unittest.TestCase):
             self.assertEqual(requests[0]["url"], "/v1/responses")
             self.assertEqual(requests[0]["body"]["model"], "gpt-5.6-luna")
             self.assertEqual(requests[0]["body"]["reasoning"], {"effort": "none"})
+            self.assertEqual(requests[0]["body"]["max_output_tokens"], 20000)
             self.assertEqual(requests[0]["body"]["text"]["format"]["type"], "json_schema")
             self.assertNotIn("etymology", output.read_text(encoding="utf-8").lower())
+
+    def test_prepare_nano_uses_minimal_reasoning(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "words.csv"
+            output = root / "input.jsonl"
+            self.write_csv(source, [{"word": "reform", "pos": "v./n.", "meaning": "改革；改正"}])
+            result = batch.prepare(SimpleNamespace(
+                input=source, output=output, batch_size=25, model="gpt-5-nano", reasoning_effort=None
+            ))
+            self.assertEqual(result, 0)
+            request = json.loads(output.read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(request["body"]["model"], "gpt-5-nano")
+            self.assertEqual(request["body"]["reasoning"], {"effort": "minimal"})
+            manifest = json.loads(output.with_suffix(".manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["reasoning_effort"], "minimal")
 
     def test_parse_renders_morphology_and_leaves_core_word_blank(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -24,6 +24,7 @@ MODEL = "gpt-5.6-luna"
 API_BASE = "https://api.openai.com/v1"
 BATCH_ENDPOINT = "/v1/responses"
 DEFAULT_BATCH_SIZE = 25
+DEFAULT_MAX_OUTPUT_TOKENS = 20000
 DEFAULT_INPUT = Path("us_core_7000_authentic.csv")
 DEFAULT_WORKDIR = Path("tmp/morphology-luna")
 STATUSES = {"ok", "not_decomposable", "needs_review"}
@@ -130,17 +131,28 @@ def chunks(values: list[Any], size: int):
         yield index, values[index : index + size]
 
 
-def batch_request(custom_id: str, words: list[dict[str, str]]) -> dict[str, Any]:
+def default_reasoning_effort(model: str) -> str:
+    if model.startswith("gpt-5-nano"):
+        return "minimal"
+    return "none"
+
+
+def batch_request(
+    custom_id: str,
+    words: list[dict[str, str]],
+    model: str,
+    reasoning_effort: str,
+) -> dict[str, Any]:
     input_text = PROMPT + "\n\n待拆解词（JSON）：\n" + json.dumps(words, ensure_ascii=False, separators=(",", ":"))
     return {
         "custom_id": custom_id,
         "method": "POST",
         "url": BATCH_ENDPOINT,
         "body": {
-            "model": MODEL,
-            "reasoning": {"effort": "none"},
+            "model": model,
+            "reasoning": {"effort": reasoning_effort},
             "input": input_text,
-            "max_output_tokens": max(2500, len(words) * 220),
+            "max_output_tokens": DEFAULT_MAX_OUTPUT_TOKENS,
             "store": False,
             "text": {
                 "verbosity": "low",
@@ -156,6 +168,8 @@ def batch_request(custom_id: str, words: list[dict[str, str]]) -> dict[str, Any]
 
 
 def prepare(args: argparse.Namespace) -> int:
+    model = getattr(args, "model", MODEL)
+    reasoning_effort = getattr(args, "reasoning_effort", None) or default_reasoning_effort(model)
     words = load_words(args.input)
     if not words:
         raise ValueError("input CSV contains no words")
@@ -164,12 +178,13 @@ def prepare(args: argparse.Namespace) -> int:
     with args.output.open("w", encoding="utf-8", newline="\n") as handle:
         for start, group in chunks(words, args.batch_size):
             end = start + len(group) - 1
-            request = batch_request(f"morph-{start:05d}-{end:05d}", group)
+            request = batch_request(f"morph-{start:05d}-{end:05d}", group, model, reasoning_effort)
             handle.write(json.dumps(request, ensure_ascii=False, separators=(",", ":")) + "\n")
             request_count += 1
     manifest = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "model": MODEL,
+        "model": model,
+        "reasoning_effort": reasoning_effort,
         "endpoint": BATCH_ENDPOINT,
         "source_csv": str(args.input),
         "source_csv_sha256": sha256_file(args.input),
@@ -247,9 +262,26 @@ def upload_batch_file(path: Path) -> dict[str, Any]:
         raise RuntimeError(f"OpenAI file upload HTTP {exc.code}: {message}") from exc
 
 
+def input_model(path: Path) -> str:
+    models: set[str] = set()
+    with path.open(encoding="utf-8") as handle:
+        for raw_line in handle:
+            if not raw_line.strip():
+                continue
+            request = json.loads(raw_line)
+            model = str((request.get("body") or {}).get("model") or "").strip()
+            if not model:
+                raise ValueError("Batch input contains a request without body.model")
+            models.add(model)
+    if len(models) != 1:
+        raise ValueError(f"Batch input must use exactly one model, found: {sorted(models)}")
+    return next(iter(models))
+
+
 def submit(args: argparse.Namespace) -> int:
     if not args.input.is_file():
         raise FileNotFoundError(args.input)
+    model = input_model(args.input)
     uploaded = upload_batch_file(args.input)
     batch = api_json(
         "POST",
@@ -263,7 +295,7 @@ def submit(args: argparse.Namespace) -> int:
     )
     state = {
         "submitted_at": datetime.now(timezone.utc).isoformat(),
-        "model": MODEL,
+        "model": model,
         "input_path": str(args.input),
         "input_sha256": sha256_file(args.input),
         "input_file_id": uploaded["id"],
@@ -300,14 +332,17 @@ def download(args: argparse.Namespace) -> int:
     state = load_state(args.state)
     batch = api_json("GET", f"/batches/{state['batch_id']}")
     output_file_id = batch.get("output_file_id")
-    if not output_file_id:
-        raise RuntimeError(f"batch has no output file yet (status={batch.get('status')})")
+    error_file_id = batch.get("error_file_id")
+    if not output_file_id and not error_file_id:
+        raise RuntimeError(f"batch has no output or error file yet (status={batch.get('status')})")
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_bytes(api_bytes(f"/files/{output_file_id}/content"))
-    print(f"wrote {args.output} ({args.output.stat().st_size} bytes)")
-    if batch.get("error_file_id") and args.errors:
-        args.errors.write_bytes(api_bytes(f"/files/{batch['error_file_id']}/content"))
-        print(f"wrote {args.errors}")
+    if output_file_id:
+        args.output.write_bytes(api_bytes(f"/files/{output_file_id}/content"))
+        print(f"wrote {args.output} ({args.output.stat().st_size} bytes)")
+    if error_file_id and args.errors:
+        args.errors.parent.mkdir(parents=True, exist_ok=True)
+        args.errors.write_bytes(api_bytes(f"/files/{error_file_id}/content"))
+        print(f"wrote {args.errors} ({args.errors.stat().st_size} bytes)")
     return 0
 
 
@@ -400,6 +435,7 @@ def parse_results(args: argparse.Namespace) -> int:
     meaning_by_word = {row["word"].casefold(): row["meaning"] for row in source_rows}
     candidates: dict[str, dict[str, Any]] = {}
     failures: list[dict[str, Any]] = []
+    models_used: set[str] = set()
     usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
     with args.results.open(encoding="utf-8") as handle:
         for line_number, raw_line in enumerate(handle, start=1):
@@ -411,6 +447,8 @@ def parse_results(args: argparse.Namespace) -> int:
                 failures.append({"line": line_number, "custom_id": line.get("custom_id"), "error": line.get("error") or response})
                 continue
             body = response.get("body") or {}
+            if body.get("model"):
+                models_used.add(str(body["model"]))
             body_usage = body.get("usage") or {}
             for key in usage:
                 usage[key] += int(body_usage.get(key, 0) or 0)
@@ -457,7 +495,8 @@ def parse_results(args: argparse.Namespace) -> int:
         for word in missing:
             handle.write(json.dumps({"kind": "missing_output", "word": word}, ensure_ascii=False, separators=(",", ":")) + "\n")
     summary = {
-        "model": MODEL,
+        "model": next(iter(models_used)) if len(models_used) == 1 else ("mixed" if models_used else MODEL),
+        "models": sorted(models_used),
         "source_words": len(known_words),
         "returned_words": len(candidates),
         "missing_words": len(missing),
@@ -483,6 +522,8 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     prepare_parser.add_argument("--output", type=Path, default=DEFAULT_WORKDIR / "input.jsonl")
     prepare_parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    prepare_parser.add_argument("--model", default=MODEL)
+    prepare_parser.add_argument("--reasoning-effort", choices=["none", "minimal", "low", "medium", "high"])
     prepare_parser.set_defaults(func=prepare)
 
     submit_parser = subparsers.add_parser("submit", help="upload JSONL and create a 24h Batch API job")
