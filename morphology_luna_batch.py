@@ -43,19 +43,21 @@ PROMPT = """你为英语学习应用 MeanEase 生成“构词拆解（morphologi
 
 硬规则：
 1. 禁止写历史传入链；不要回答中古英语、古英语、古法语、拉丁语/希腊语传入英语等历史来源。
-2. 只有可靠时 status=ok；不能可靠拆的核心词（如 the、have）用 not_decomposable；拿不准用 needs_review。
-3. 禁止按字母相邻硬拆。允许不能独立成现代英语单词的 bound root，例如 rog“问、请求”、ven“来”。
-4. parts 必须按目标拼写从左到右。prefix 的 form 末尾带 -，suffix 的 form 开头带 -，root/base 不带边界连字符。
-5. 若拼接涉及 e 脱落、辅音变化等，写进 spelling_note；没有调整时 spelling_note 为空字符串。
-6. meaning_zh 只解释该构词成分在这里的学习含义，不得写语言来源。
-7. confidence 反映你对“这个切分本身”的把握，不反映单词释义把握。
+2. 目标是“最少但足够解释构词”的学习型拆解，不是拆得越深越好。优先寻找能解释目标词结构的最浅可靠层级；如果外层词缀加一个清楚、可识别的现代英语基础词已经足够，就保留该基础词整体，不因还能找到更小片段而继续递归拆解。
+3. 只有当保留完整基础词会丢失重要、稳定且对学习者有价值的构词关系时，才继续拆到 bound root 或更细的派生层级。bound root 可以不能独立成现代英语单词，但必须是稳定、可复用、语义清楚的学习型成分。
+4. 不要把相邻的多个派生成分为了省事合并成一个更大的“后缀/前缀”，如果这些成分在目标词的派生链中各自承担清楚、独立且对学习有用的作用；同时也不要为了展示更多成分而过度拆解一个本来已经足够清楚的现代基础词。
+5. 每个词素的 meaning_zh 必须解释它在当前单词里实际贡献的学习含义。仅有拼写相似不能证明它就是某个常见前缀、后缀或词根；不得把一个成分在其他单词中的常见意思机械套到当前单词。若切分形式上看似可能，但任一成分在当前单词中的语义不能可靠解释，status=needs_review。
+6. status=ok 只用于“切分与每个成分在当前单词中的语义都可靠”的情况；无法得到可靠且有学习价值的拆解时用 not_decomposable；存在合理候选但切分或语义仍不确定时用 needs_review。not_decomposable 和 needs_review 的 parts 都必须为空数组。
+7. 禁止按字母相邻硬拆。parts 必须按目标词实际表面拼写从左到右；不要在 parts 中把表面变体替换成规范化形式。prefix 的 form 末尾带 -，suffix 的 form 开头带 -，root/base 不带边界连字符。
+8. 若拼接涉及字母脱落、增加、替换、辅音同化或其他对学习者有用的形式变化，写进 spelling_note；没有调整时为空字符串。
+9. confidence 反映你对“这个切分以及各成分在当前单词中的解释”的把握；不要因为 JSON 结构完整就给高置信度。
 
-标准示例：
-interrogation => inter- + rog + -ate + -ion；spelling_note="interrogate 加 -ion 时末尾 e 脱落"；high
-intervention => inter- + ven + -tion；high
-reform => re- + form；high
-the => not_decomposable
-have => not_decomposable
+判定顺序：
+A. 先判断这个词是否存在可靠且有学习价值的构词拆解；没有则 not_decomposable。
+B. 先测试外层词缀 + 可识别现代基础词的浅层拆解是否已经足够。
+C. 只有在确有额外学习价值时，才把基础词进一步拆成稳定的 bound root 或连续派生成分。
+D. 对每个候选成分逐一验证：边界是否真实、类型是否合理、在当前单词中的语义是否成立、整体是否能解释目标词。
+E. 只要某一步仍依赖猜测、机械类比或无法可靠说明的语义，就返回 needs_review，不输出候选 parts。
 
 必须为输入中的每个 word 返回且只返回一个 item；word 原样复制。"""
 

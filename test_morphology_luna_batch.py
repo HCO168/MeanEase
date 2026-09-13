@@ -65,6 +65,15 @@ class MorphologyLunaBatchTests(unittest.TestCase):
             manifest = json.loads(output.with_suffix(".manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["reasoning_effort"], "minimal")
 
+    def test_prompt_uses_generic_shallow_and_contextual_rules(self) -> None:
+        self.assertIn("最少但足够解释构词", batch.PROMPT)
+        self.assertIn("优先寻找能解释目标词结构的最浅可靠层级", batch.PROMPT)
+        self.assertIn("仅有拼写相似不能证明", batch.PROMPT)
+        self.assertIn("不得把一个成分在其他单词中的常见意思机械套到当前单词", batch.PROMPT)
+        self.assertIn("needs_review 的 parts 都必须为空数组", batch.PROMPT)
+        for example_word in ("impossible", "illegal", "interrogation", "intervention", "reform", "receive", "the", "have"):
+            self.assertNotIn(example_word, batch.PROMPT)
+
     def test_parse_renders_morphology_and_leaves_core_word_blank(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
