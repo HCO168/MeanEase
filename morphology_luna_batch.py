@@ -359,12 +359,12 @@ def status_summary(args: argparse.Namespace) -> int:
             errors.append({"state": str(state_path), "error": str(exc)})
 
     shown = {
+        "batches": batches,
+        "errors": errors,
         "batch_count": len(state_paths),
         "status_counts": dict(sorted(status_counts.items())),
         "request_counts": dict(sorted(request_counts.items())),
         "error_count": len(errors),
-        "batches": batches,
-        "errors": errors,
     }
     print(json.dumps(shown, ensure_ascii=False, indent=2))
     return 0 if not errors else 1

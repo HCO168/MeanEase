@@ -119,6 +119,7 @@ class MorphologyLunaBatchTests(unittest.TestCase):
                 result = batch.status_summary(SimpleNamespace(state_dir=root, pattern="*-state.json"))
             self.assertEqual(result, 0)
             summary = json.loads(output.getvalue())
+            self.assertEqual(list(summary)[-4:], ["batch_count", "status_counts", "request_counts", "error_count"])
             self.assertEqual(summary["batch_count"], 2)
             self.assertEqual(summary["status_counts"], {"completed": 1, "in_progress": 1})
             self.assertEqual(summary["request_counts"], {"completed": 3, "failed": 0, "total": 5})
