@@ -153,6 +153,36 @@ class MorphologyLunaBatchTests(unittest.TestCase):
         issues = batch.validate_item(item, {"reform"})
         self.assertIn("historical_etymology_in_meaning", issues)
 
+    def test_duplicate_component_form_is_rejected(self) -> None:
+        item = {
+            "word": "tiled", "status": "ok", "confidence": "low", "spelling_note": "重复成分",
+            "parts": [
+                {"form": "tile", "type": "base", "meaning_zh": "瓷砖"},
+                {"form": "-ed", "type": "suffix", "meaning_zh": "表示状态"},
+                {"form": "tile", "type": "base", "meaning_zh": "瓷砖"},
+            ],
+        }
+        self.assertIn("duplicate_component_form", batch.validate_item(item, {"tiled"}))
+
+    def test_root_matching_reference_word_is_review_warning(self) -> None:
+        item = {
+            "word": "forerunner", "status": "ok", "confidence": "high", "spelling_note": "run 加 -er 时 n 双写",
+            "parts": [
+                {"form": "fore-", "type": "prefix", "meaning_zh": "在前"},
+                {"form": "run", "type": "root", "meaning_zh": "运行"},
+                {"form": "-er", "type": "suffix", "meaning_zh": "执行动作的人或物"},
+            ],
+        }
+        warnings = batch.review_warnings(item, {"forerunner", "run"})
+        self.assertIn("root_matches_reference_word", warnings)
+
+    def test_high_confidence_not_decomposable_affix_candidate_is_review_warning(self) -> None:
+        item = {
+            "word": "poster", "status": "not_decomposable", "confidence": "high", "spelling_note": "", "parts": [],
+        }
+        warnings = batch.review_warnings(item, {"poster", "post"})
+        self.assertIn("possible_productive_affix_split", warnings)
+
 
 if __name__ == "__main__":
     unittest.main()

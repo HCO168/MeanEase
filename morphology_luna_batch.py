@@ -38,6 +38,15 @@ HISTORY_RE = re.compile(
     re.IGNORECASE,
 )
 
+PRODUCTIVE_PREFIXES = (
+    "anti", "de", "dis", "en", "fore", "inter", "mis", "non", "over", "pre", "re",
+    "sub", "super", "trans", "un", "under",
+)
+PRODUCTIVE_SUFFIXES = (
+    "able", "al", "ance", "ence", "ed", "en", "er", "ful", "hood", "ian", "ing", "ism",
+    "ist", "ity", "ive", "ize", "less", "ly", "ment", "ness", "ous", "ship", "y",
+)
+
 PROMPT = """你为英语学习应用 MeanEase 生成“构词拆解（morphological decomposition）”草稿，不是历史词源。
 对每个输入词判断现代学习上能否可靠拆成有意义的前缀、词根、基础词、后缀或构词成分。
 
@@ -412,6 +421,37 @@ def normalized_spelling(parts: list[dict[str, Any]]) -> str:
     return "".join(str(part.get("form", "")).strip("-") for part in parts).casefold()
 
 
+def normalized_part_form(part: dict[str, Any]) -> str:
+    return str(part.get("form", "")).strip("-").casefold()
+
+
+def possible_productive_affix_split(word: str, reference_words: set[str]) -> bool:
+    word = word.casefold()
+    if len(word) < 6:
+        return False
+    for prefix in PRODUCTIVE_PREFIXES:
+        if word.startswith(prefix) and len(word) - len(prefix) >= 4 and word[len(prefix):] in reference_words:
+            return True
+    for suffix in PRODUCTIVE_SUFFIXES:
+        if word.endswith(suffix) and len(word) - len(suffix) >= 4 and word[:-len(suffix)] in reference_words:
+            return True
+    return False
+
+
+def review_warnings(item: dict[str, Any], reference_words: set[str]) -> list[str]:
+    warnings: list[str] = []
+    word = str(item.get("word", "")).strip().casefold()
+    parts = item.get("parts")
+    if isinstance(parts, list):
+        for part in parts:
+            if part.get("type") == "root" and normalized_part_form(part) in reference_words:
+                warnings.append("root_matches_reference_word")
+    if item.get("status") == "not_decomposable" and item.get("confidence") == "high":
+        if possible_productive_affix_split(word, reference_words):
+            warnings.append("possible_productive_affix_split")
+    return sorted(set(warnings))
+
+
 def validate_item(item: dict[str, Any], known_words: set[str]) -> list[str]:
     issues: list[str] = []
     word = str(item.get("word", "")).strip()
@@ -431,6 +471,9 @@ def validate_item(item: dict[str, Any], known_words: set[str]) -> list[str]:
         issues.append("ok_requires_multiple_parts")
     if status_value != "ok" and parts:
         issues.append("non_ok_must_have_empty_parts")
+    normalized_forms = [normalized_part_form(part) for part in parts]
+    if len(normalized_forms) != len(set(normalized_forms)):
+        issues.append("duplicate_component_form")
     for part in parts:
         form = str(part.get("form", ""))
         part_type = part.get("type")
@@ -483,6 +526,12 @@ def render_note(word: str, parts: list[dict[str, Any]], spelling_note: str, word
 def parse_results(args: argparse.Namespace) -> int:
     source_rows = load_words(args.input_csv)
     known_words = {row["word"].casefold() for row in source_rows}
+    reference_words = set(known_words)
+    if DEFAULT_INPUT.exists():
+        try:
+            reference_words.update(row["word"].casefold() for row in load_words(DEFAULT_INPUT))
+        except (OSError, KeyError, ValueError):
+            pass
     meaning_by_word = {row["word"].casefold(): row["meaning"] for row in source_rows}
     candidates: dict[str, dict[str, Any]] = {}
     failures: list[dict[str, Any]] = []
@@ -512,11 +561,13 @@ def parse_results(args: argparse.Namespace) -> int:
             for item in parsed.get("items") or []:
                 word_key = str(item.get("word", "")).casefold()
                 issues = validate_item(item, known_words)
+                warnings = review_warnings(item, reference_words)
                 if word_key in candidates:
                     issues.append("duplicate_word_output")
                 candidate = {
                     **item,
                     "issues": sorted(set(issues)),
+                    "warnings": warnings,
                     "note": "",
                     "model": body.get("model") or MODEL,
                     "batch_custom_id": line.get("custom_id"),
@@ -539,7 +590,12 @@ def parse_results(args: argparse.Namespace) -> int:
     review_path = args.output.with_name(args.output.stem + ".needs-review.jsonl")
     with review_path.open("w", encoding="utf-8", newline="\n") as handle:
         for candidate in candidates.values():
-            if candidate.get("status") == "needs_review" or candidate.get("confidence") != "high" or candidate.get("issues"):
+            if (
+                candidate.get("status") == "needs_review"
+                or candidate.get("confidence") != "high"
+                or candidate.get("issues")
+                or candidate.get("warnings")
+            ):
                 handle.write(json.dumps(candidate, ensure_ascii=False, separators=(",", ":")) + "\n")
         for failure in failures:
             handle.write(json.dumps({"kind": "request_failure", **failure}, ensure_ascii=False, separators=(",", ":")) + "\n")
@@ -554,7 +610,18 @@ def parse_results(args: argparse.Namespace) -> int:
         "request_failures": len(failures),
         "status_counts": {status_name: sum(c.get("status") == status_name for c in candidates.values()) for status_name in sorted(STATUSES)},
         "confidence_counts": {confidence: sum(c.get("confidence") == confidence for c in candidates.values()) for confidence in sorted(CONFIDENCES)},
-        "valid_ok_high": sum(c.get("status") == "ok" and c.get("confidence") == "high" and not c.get("issues") for c in candidates.values()),
+        "valid_ok_high": sum(
+            c.get("status") == "ok"
+            and c.get("confidence") == "high"
+            and not c.get("issues")
+            and not c.get("warnings")
+            for c in candidates.values()
+        ),
+        "warning_words": sum(bool(c.get("warnings")) for c in candidates.values()),
+        "warning_counts": {
+            warning: sum(warning in c.get("warnings", []) for c in candidates.values())
+            for warning in sorted({warning for c in candidates.values() for warning in c.get("warnings", [])})
+        },
         "usage": usage,
         "candidate_file": str(args.output),
         "review_file": str(review_path),
