@@ -27,8 +27,6 @@ UPDATE_FILES = (
     "start_vocab.py",
     "update_vocab.py",
     "build_authentic_7000.py",
-    "enrich_wiktionary_etymology.py",
-    "enrich_chinese_word_formation.py",
     "enrich_tatoeba_examples.py",
     "apply_cefr_levels.py",
     "audit_vocabulary.py",
@@ -98,10 +96,14 @@ def validate(files: dict[str, bytes]) -> None:
     header = csv_text.splitlines()[0]
     if not header.startswith("word,base_word,phonetic,pos,meaning,level"):
         raise RuntimeError("词库表头校验失败")
+    if ",morphology,morphology_source,morphology_license," not in header:
+        raise RuntimeError("词库缺少 morphology 字段")
+    if any(field in header.split(",") for field in ("etymology", "etymology_source", "etymology_license")):
+        raise RuntimeError("词库仍包含已移除的 etymology 兼容字段")
     if len(csv_text.splitlines()) < 20001:
         raise RuntimeError("词库数量校验失败")
 
-    for name in ("start_vocab.py", "update_vocab.py", "build_authentic_7000.py", "apply_cefr_levels.py", "enrich_wiktionary_etymology.py", "enrich_chinese_word_formation.py", "enrich_tatoeba_examples.py", "audit_vocabulary.py"):
+    for name in ("start_vocab.py", "update_vocab.py", "build_authentic_7000.py", "apply_cefr_levels.py", "enrich_tatoeba_examples.py", "audit_vocabulary.py"):
         ast.parse(files[name].decode("utf-8"))
 
 

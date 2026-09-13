@@ -26,9 +26,9 @@ FIELDS = [
     "meaning",
     "level",
     "collocation",
-    "etymology",
-    "etymology_source",
-    "etymology_license",
+    "morphology",
+    "morphology_source",
+    "morphology_license",
     "example_en",
     "example_zh",
     "example_source",
@@ -173,9 +173,9 @@ def build(input_path: Path | None, output_path: Path, limit: int, url: str) -> t
                     "meaning": translation,
                     "level": "",
                     "collocation": "",
-                    "etymology": "",
-                    "etymology_source": "",
-                    "etymology_license": "",
+                    "morphology": "",
+                    "morphology_source": "",
+                    "morphology_license": "",
                     "example_en": "",
                     "example_zh": "",
                     "example_source": "",
@@ -202,7 +202,7 @@ def main() -> int:
         print(f"Build failed: {exc}", file=sys.stderr)
         return 1
     print(f"Wrote {total} rows to {args.output}; ECDICT matched {matched} ({matched / total:.1%}).")
-    print("Unverified collocations, etymologies, and examples were intentionally left blank.")
+    print("Unverified collocations, morphology notes, and examples were intentionally left blank.")
     return 0
 
 

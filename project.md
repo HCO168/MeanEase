@@ -16,8 +16,6 @@
 | `start_vocab.py` | 自动启动本地服务器并打开浏览器 |
 | `build_authentic_7000.py` | 从 ECDICT 重新构建可信核心词库 |
 | `apply_cefr_levels.py` | 从 American Oxford 3000/5000 PDF 添加 CEFR 学习难度 |
-| `enrich_wiktionary_etymology.py` | 流式筛选 Wiktextract 数据并补充中间英文词源 |
-| `enrich_chinese_word_formation.py` | 用 engra 结构关系和 Wiktionary 来源生成中文构词短注 |
 | `enrich_tatoeba_examples.py` | 从 Tatoeba 校对语料补充可溯源双语例句 |
 | `audit_vocabulary.py` | 检查 CSV 结构、覆盖率、重复词和模板化伪数据 |
 
@@ -118,7 +116,7 @@ record_type,key,state,due_position,interval,ease,reps,lapses,last_reviewed,remov
 文件使用 UTF-8 with BOM，标准表头如下：
 
 ```csv
-word,base_word,phonetic,pos,meaning,level,level_source,placement_eligible,collocation,etymology,etymology_source,etymology_license,example_en,example_zh,example_source,example_license
+word,base_word,phonetic,pos,meaning,level,level_source,placement_eligible,collocation,morphology,morphology_source,morphology_license,example_en,example_zh,example_source,example_license
 ```
 
 应用的解析器支持 RFC 4180 常用格式，包括：
@@ -140,7 +138,7 @@ word,base_word,phonetic,pos,meaning,level,level_source,placement_eligible,colloc
 
 难度采用保守的多源合并：Oxford 3000/5000 优先，CEFR-J Wordlist 1.5 只补充未匹配的 A1-B2 词，Octanove Vocabulary Profile 1.0 再补充 C1-C2。CEFR-J 数据归东京外国语大学投野研究室所有，可在正确署名下免费用于研究和商业用途；Octanove C1/C2 数据采用 CC BY-SA 4.0。没有任何来源明确分级的词保留为 `Unrated`，不会因为“不在 Oxford 核心词表”就自动升级为 Beyond C1。
 
-构词短注优先使用 MIT 许可的 engra 结构化词根关系，生成 `reform / re-form；re-：重新、再次；form：形式、组成；reform：改革、改正。` 这类中文记忆说明。没有可靠拆解时，只把 Wiktionary 中能明确识别的来源语言压缩成中文短句；无法确定就留空，不猜词根。
+正式词库使用独立的 `morphology`、`morphology_source`、`morphology_license` 字段承载面向学习者的构词拆解。旧 `etymology*` 字段已经从运行结构中移除，不再作为兼容字段读取。当前结构迁移阶段不自动生成或改写构词内容，因此这三个字段暂时留空；后续只允许经单独复核的构词数据写入。
 
 双语例句来自 Tatoeba 的英中句对，经 ManyThings 筛选为母语者或已校对内容。构建器只接受目标词的完整单词匹配，优先选择简体、长度适中的句子，并过滤不适合通用学习卡片的敏感内容。每个非空例句保存 Tatoeba 原句页面和 `CC BY 2.0 FR` 许可证。ECDICT 不稳定提供搭配，因此搭配仍保持为空。
 
@@ -149,8 +147,6 @@ word,base_word,phonetic,pos,meaning,level,level_source,placement_eligible,colloc
 ```bash
 python3 build_authentic_7000.py
 python3 apply_cefr_levels.py
-python3 enrich_wiktionary_etymology.py
-python3 enrich_chinese_word_formation.py
 python3 enrich_tatoeba_examples.py
 ```
 
@@ -174,7 +170,8 @@ python3 audit_vocabulary.py us_core_7000_authentic.csv
 - 空单词与重复单词；
 - 每个字段的有效覆盖率；
 - 音标是否只是原词加斜杠；
-- `use word`、通用词源、模板例句等伪数据模式。
+- `use word`、模板化构词、模板例句等伪数据模式；
+- 是否残留已经移除的 `etymology*` 兼容字段。
 
 当前默认词库的构建结果：
 
@@ -185,7 +182,7 @@ python3 audit_vocabulary.py us_core_7000_authentic.csv
 - 9,696 个词获得多源 CEFR 分级，10,304 个词保守地保持未定级；
 - Beyond C1 从原先错误兜底的 13,765 个缩减为 548 个有明确 Octanove C2 证据的词；
 - 定级测试池为 A1 1,130、A2 1,036、B1 854、B2 1,565、C1 2,130、Beyond C1 548 个核心词；
-- 中文构词或来源短注覆盖 13,677 个词，约 68.4%；
+- `morphology*` 已完成结构切换，本阶段不迁移旧历史词源文本，因此构词内容暂为空；
 - 可溯源 Tatoeba 双语例句覆盖 4,831 个词，约 24.2%；
 - 所有非空构词和例句均附来源页面与许可证；
 - 未填充任何模板化搭配或程序生成例句。
@@ -208,7 +205,7 @@ python3 audit_vocabulary.py us_core_7000_authentic.csv
 
 ```bash
 node -e "/* 提取并编译 HTML 内联脚本 */"
-python3 -m py_compile build_authentic_7000.py apply_cefr_levels.py enrich_wiktionary_etymology.py enrich_chinese_word_formation.py enrich_tatoeba_examples.py audit_vocabulary.py
+python3 -m py_compile build_authentic_7000.py apply_cefr_levels.py enrich_tatoeba_examples.py audit_vocabulary.py
 python3 audit_vocabulary.py us_core_7000_authentic.csv
 ```
 
@@ -218,5 +215,5 @@ python3 audit_vocabulary.py us_core_7000_authentic.csv
 
 1. 继续补充授权清晰的搭配语料，并按来源字段记录许可证和出处。
 2. 若要采用 FSRS，应引入官方 `fsrs.js`，同时设计旧调度数据迁移，而不是复制不完整公式。
-3. 增加词条编辑器，让用户人工补充搭配、词源与例句，并区分“词典数据”和“个人笔记”。
+3. 增加词条编辑器，让用户人工补充搭配、构词与例句，并区分“词典数据”和“个人笔记”。
 4. 增加可选的学习历史图表，但不应让统计信息压过当天复习任务。
