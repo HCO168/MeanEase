@@ -52,6 +52,13 @@ PROMPT = """你为英语学习应用 MeanEase 生成“构词拆解（morphologi
 8. 若拼接涉及字母脱落、增加、替换、辅音同化或其他对学习者有用的形式变化，写进 spelling_note；没有调整时为空字符串。
 9. confidence 反映你对“这个切分以及各成分在当前单词中的解释”的把握；不要因为 JSON 结构完整就给高置信度。
 
+参考示例（只用于说明判断方式）：
+unhelpful => un- + help + -ful；high
+prediction => pre- + dict + -ion；high
+creation => create + -ion；spelling_note="create 加 -ion 时词尾 e 脱落"；high
+illegal => il- + legal；spelling_note="否定前缀 in- 在 l 前同化为 il-"；high
+uncle => not_decomposable；parts=[]；high
+
 判定顺序：
 A. 先判断这个词是否存在可靠且有学习价值的构词拆解；没有则 not_decomposable。
 B. 找出可能成立的构词成分组合，包括现代基础词、bound root、前缀、后缀和 combining form。

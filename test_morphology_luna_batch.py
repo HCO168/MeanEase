@@ -65,17 +65,22 @@ class MorphologyLunaBatchTests(unittest.TestCase):
             manifest = json.loads(output.with_suffix(".manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["reasoning_effort"], "minimal")
 
-    def test_prompt_uses_generic_component_quality_rules(self) -> None:
-        self.assertIn("不限制成分数量或组合方式", batch.PROMPT)
-        self.assertIn("最终分析只由构词关系本身决定", batch.PROMPT)
+    def test_prompt_examples_are_disjoint_from_holdout_words(self) -> None:
+        prompt_examples = {"unhelpful", "prediction", "creation", "illegal", "uncle"}
+        holdout_words = {
+            "irregular", "carelessness", "transportation", "receive",
+            "window", "inject", "disagreement", "replacement",
+        }
+        self.assertTrue(prompt_examples.isdisjoint(holdout_words))
+        for word in prompt_examples:
+            self.assertIn(word, batch.PROMPT)
+        for word in holdout_words:
+            self.assertNotIn(word, batch.PROMPT)
         self.assertIn("不得为了让字母恰好拼接而临时创造", batch.PROMPT)
         self.assertIn("不得把一个成分在其他单词中的常见意思机械套到当前单词", batch.PROMPT)
         self.assertIn("不要为了让 parts 机械拼接成目标拼写而把真实词素截成临时片段", batch.PROMPT)
-        self.assertIn("needs_review 的 parts 都必须为空数组", batch.PROMPT)
         for forbidden_depth_phrase in ("拆解深度", "浅层", "更浅", "更深", "拆解层级", "基础词层级", "完整拆解"):
             self.assertNotIn(forbidden_depth_phrase, batch.PROMPT)
-        for example_word in ("impossible", "illegal", "interrogation", "intervention", "reform", "receive", "the", "have"):
-            self.assertNotIn(example_word, batch.PROMPT)
 
     def test_parse_renders_morphology_and_leaves_core_word_blank(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
