@@ -31,6 +31,9 @@ STATUSES = {"ok", "not_decomposable", "needs_review"}
 CONFIDENCES = {"high", "medium", "low"}
 PART_TYPES = {"prefix", "root", "base", "suffix", "combining_form"}
 FORM_RE = re.compile(r"^-?[A-Za-z]+(?:'[A-Za-z]+)?-?$")
+SPELLING_CHANGE_CLAIM_RE = re.compile(r"脱落|删除|删去|省略|双写|加倍|变为|改为|替换")
+SPELLING_CHANGE_NEGATION_RE = re.compile(r"不双写|无需双写|不加倍|不脱落|不删除|不省略|不改变|无变化|保持|保留")
+
 HISTORY_RE = re.compile(
     r"中古|古英语|古法语|拉丁语|希腊语|法语|日耳曼语|Middle\s+English|Middle\s+French|"
     r"Old\s+English|Old\s+French|Latin|Greek|French|Germanic|Proto-|原始印欧|原始日耳曼|"
@@ -449,6 +452,17 @@ def review_warnings(item: dict[str, Any], reference_words: set[str]) -> list[str
     if item.get("status") == "not_decomposable" and item.get("confidence") == "high":
         if possible_productive_affix_split(word, reference_words):
             warnings.append("possible_productive_affix_split")
+    note = str(item.get("spelling_note", ""))
+    if (
+        item.get("status") == "ok"
+        and isinstance(parts, list)
+        and note
+        and normalized_spelling(parts) == word
+        and SPELLING_CHANGE_CLAIM_RE.search(note)
+        and not SPELLING_CHANGE_NEGATION_RE.search(note)
+        and "同化" not in note
+    ):
+        warnings.append("spelling_change_claim_but_surface_unchanged")
     return sorted(set(warnings))
 
 

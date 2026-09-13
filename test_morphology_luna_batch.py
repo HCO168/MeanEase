@@ -176,6 +176,43 @@ class MorphologyLunaBatchTests(unittest.TestCase):
         warnings = batch.review_warnings(item, {"forerunner", "run"})
         self.assertIn("root_matches_reference_word", warnings)
 
+    def test_false_spelling_change_claim_is_review_warning(self) -> None:
+        item = {
+            "word": "unfulfilled", "status": "ok", "confidence": "high",
+            "spelling_note": "fulfill 加 -ed 时词尾 l 双写",
+            "parts": [
+                {"form": "un-", "type": "prefix", "meaning_zh": "未"},
+                {"form": "fulfill", "type": "base", "meaning_zh": "实现"},
+                {"form": "-ed", "type": "suffix", "meaning_zh": "完成状态"},
+            ],
+        }
+        warnings = batch.review_warnings(item, {"unfulfilled", "fulfill"})
+        self.assertIn("spelling_change_claim_but_surface_unchanged", warnings)
+
+    def test_assimilation_note_is_not_false_spelling_change_warning(self) -> None:
+        item = {
+            "word": "impossible", "status": "ok", "confidence": "high",
+            "spelling_note": "否定前缀 in- 在 p 前同化为 im-",
+            "parts": [
+                {"form": "im-", "type": "prefix", "meaning_zh": "不"},
+                {"form": "possible", "type": "base", "meaning_zh": "可能的"},
+            ],
+        }
+        warnings = batch.review_warnings(item, {"impossible", "possible"})
+        self.assertNotIn("spelling_change_claim_but_surface_unchanged", warnings)
+
+    def test_no_double_note_is_not_false_spelling_change_warning(self) -> None:
+        item = {
+            "word": "modeling", "status": "ok", "confidence": "high",
+            "spelling_note": "美式拼写 modeling 中，model 的词尾 l 不双写",
+            "parts": [
+                {"form": "model", "type": "base", "meaning_zh": "模型"},
+                {"form": "-ing", "type": "suffix", "meaning_zh": "过程"},
+            ],
+        }
+        warnings = batch.review_warnings(item, {"modeling", "model"})
+        self.assertNotIn("spelling_change_claim_but_surface_unchanged", warnings)
+
     def test_high_confidence_not_decomposable_affix_candidate_is_review_warning(self) -> None:
         item = {
             "word": "poster", "status": "not_decomposable", "confidence": "high", "spelling_note": "", "parts": [],

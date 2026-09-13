@@ -157,7 +157,7 @@ python3 morphology_luna_batch.py download
 python3 morphology_luna_batch.py parse
 ```
 
-不要把 API key 写入仓库或命令历史；推荐在本机安全环境中设置 `OPENAI_API_KEY`。`prepare` 生成 `tmp/morphology-luna/input.jsonl` 和 SHA-256 manifest；`status-summary` 会逐个读取匹配的 state 文件并实时查询 Batch API，汇总 Batch 状态数量和 `request_counts`，同时保留每个 Batch 的明细；`parse` 生成完整候选、低置信/异常复核清单和实际 token 使用统计。脚本会拒绝历史词源语言链、重复输出、未知单词、非法词素边界、重复构词成分和无说明的拼写不匹配；另外把“root 本身也是正式词表中的独立词”和“high-confidence 不可拆但存在常见生产性词缀 + 已知基础词候选”标为 warning 并送入复核，而不是自动判错。`valid_ok_high` 只统计 high confidence、无 issue 且无 warning 的 `ok` 项。正式 20,000 词生产配置冻结为 Prompt v6 + `gpt-5.6-luna` + `reasoning=medium` + 25 词/request；正式 `us_core_7000_authentic.csv` 只有经过后续复核后才能单独更新。
+不要把 API key 写入仓库或命令历史；推荐在本机安全环境中设置 `OPENAI_API_KEY`。`prepare` 生成 `tmp/morphology-luna/input.jsonl` 和 SHA-256 manifest；`status-summary` 会逐个读取匹配的 state 文件并实时查询 Batch API，汇总 Batch 状态数量和 `request_counts`，同时保留每个 Batch 的明细；`parse` 生成完整候选、低置信/异常复核清单和实际 token 使用统计。脚本会拒绝历史词源语言链、重复输出、未知单词、非法词素边界、重复构词成分和无说明的拼写不匹配；另外把“root 本身也是正式词表中的独立词”、“high-confidence 不可拆但存在常见生产性词缀 + 已知基础词候选”，以及“parts 已可直接拼成目标词但 `spelling_note` 仍声称发生脱落/替换/双写等表面变化”标为 warning 并送入复核，而不是自动判错。`valid_ok_high` 只统计 high confidence、无 issue 且无 warning 的 `ok` 项。正式 20,000 词生产配置冻结为 Prompt v6 + `gpt-5.6-luna` + `reasoning=medium` + 25 词/request；正式 `us_core_7000_authentic.csv` 只有经过后续复核后才能单独更新。
 
 双语例句来自 Tatoeba 的英中句对，经 ManyThings 筛选为母语者或已校对内容。构建器只接受目标词的完整单词匹配，优先选择简体、长度适中的句子，并过滤不适合通用学习卡片的敏感内容。每个非空例句保存 Tatoeba 原句页面和 `CC BY 2.0 FR` 许可证。ECDICT 不稳定提供搭配，因此搭配仍保持为空。
 
