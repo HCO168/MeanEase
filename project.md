@@ -140,7 +140,7 @@ word,base_word,phonetic,pos,meaning,level,level_source,placement_eligible,colloc
 
 难度采用保守的多源合并：Oxford 3000/5000 优先，CEFR-J Wordlist 1.5 只补充未匹配的 A1-B2 词，Octanove Vocabulary Profile 1.0 再补充 C1-C2。CEFR-J 数据归东京外国语大学投野研究室所有，可在正确署名下免费用于研究和商业用途；Octanove C1/C2 数据采用 CC BY-SA 4.0。没有任何来源明确分级的词保留为 `Unrated`，不会因为“不在 Oxford 核心词表”就自动升级为 Beyond C1。
 
-正式词库使用独立的 `morphology`、`morphology_source`、`morphology_license` 字段承载面向学习者的构词拆解。旧 `etymology*` 字段已经从运行结构中移除，不再作为兼容字段读取。2026-09-13 的正式 Luna Medium Batch 共覆盖 20,000 词；经本地 validator v3 过滤后，只把 8,778 条 `status=ok + confidence=high + 无 issue/warning` 的候选写入正式 CSV，覆盖率 43.89%。其余 `not_decomposable` 与 review 项保持空白，不把不确定分析写入产品数据。修改前完整 CSV、原始 Batch output、候选与 review 文件均保存在根仓库 `discard/20260913-meanease-morphology-production/`。
+正式词库使用独立的 `morphology`、`morphology_source`、`morphology_license` 字段承载面向学习者的构词拆解。旧 `etymology*` 字段已经从运行结构中移除，不再作为兼容字段读取。2026-09-13 的正式 Luna Medium Batch 共覆盖 20,000 词；首轮 validator v3 自动安全区写入 8,778 条。随后人工复核 746 个 `spelling_mismatch_without_note`：699 条确认原拆分正确并补拼写说明，36 条改正拆分/类型后通过，4 条明确拒绝，7 条继续保留复核；第二轮新增 735 条后，正式 `morphology*` 共覆盖 9,513 词（47.57%）。未通过或仍不确定的候选继续保持空白。原始 Batch 数据与首轮落库备份在根仓库 `discard/20260913-meanease-morphology-production/`，本轮 746 词复核表、分类结果、复核脚本及落库前后 CSV 保存在 `discard/20260913-meanease-morphology-review-spelling/`。
 
 ### 批量构词草稿
 
@@ -202,7 +202,7 @@ python3 audit_vocabulary.py us_core_7000_authentic.csv
 - 9,696 个词获得多源 CEFR 分级，10,304 个词保守地保持未定级；
 - Beyond C1 从原先错误兜底的 13,765 个缩减为 548 个有明确 Octanove C2 证据的词；
 - 定级测试池为 A1 1,130、A2 1,036、B1 854、B2 1,565、C1 2,130、Beyond C1 548 个核心词；
-- `morphology*` 已完成结构切换；8,778 个词已写入经 validator v3 筛选的学习型构词拆解，覆盖 43.89%，其余词保持空白等待后续复核或明确不可拆；
+- `morphology*` 已完成结构切换；首轮自动安全候选 8,778 条加上 `spelling_mismatch_without_note` 人工复核新增 735 条，当前共 9,513 个词有学习型构词拆解，覆盖 47.57%；其余词保持空白等待后续复核或明确不可拆；
 - 可溯源 Tatoeba 双语例句覆盖 4,831 个词，约 24.2%；
 - 所有非空构词和例句均附来源页面与许可证；
 - 未填充任何模板化搭配或程序生成例句。
