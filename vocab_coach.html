@@ -189,7 +189,7 @@
             <div class="meaning-row"><span class="pos" id="back-pos"></span><span id="back-meaning"></span></div>
             <div class="detail-grid">
               <section class="detail"><h3>常用搭配</h3><p id="back-collocation"></p></section>
-              <section class="detail"><h3>词源与构词</h3><p id="back-morphology"></p><a class="source-link" id="back-morphology-source" target="_blank" rel="noreferrer" hidden>查看 Wiktionary 来源</a></section>
+              <section class="detail"><h3>构词拆解</h3><p id="back-morphology"></p><a class="source-link" id="back-morphology-source" target="_blank" rel="noreferrer" hidden>查看构词资料来源</a></section>
               <section class="detail example"><h3>语境例句</h3><p class="example-en" id="back-example-en"></p><p class="example-zh" id="back-example-zh"></p><a class="source-link" id="back-example-source" target="_blank" rel="noreferrer" hidden>查看 Tatoeba 例句来源</a></section>
             </div>
             <div class="quality-note" id="quality-note"></div>
@@ -260,7 +260,9 @@
   <script>
     "use strict";
     const DB_NAME = "vocab_coach_db", DB_VERSION = 1, CARD_STORE = "cards", META_STORE = "meta";
-    const LIBRARY_FILE = "us_core_7000_authentic.csv", LIBRARY_NAME = "ECDICT 高频 20000 + 多源 CEFR + 中文构词 + Tatoeba 例句", LIBRARY_VERSION = "20000-multisource-cefr-2026-08-v3";
+    const LIBRARY_FILE = "us_core_7000_authentic.csv", LIBRARY_NAME = "ECDICT 高频 20000 + 多源 CEFR + 中文构词 + Tatoeba 例句";
+    const PRE_MORPHOLOGY_LIBRARY_VERSION = "20000-multisource-cefr-2026-08-v3", LIBRARY_VERSION = "20000-multisource-cefr-morphology-2026-09-v4";
+    const PROGRESS_COMPATIBLE_LIBRARY_VERSIONS = new Set([PRE_MORPHOLOGY_LIBRARY_VERSION, LIBRARY_VERSION]);
     const CLOUD_APP_ID = "meanease", CLOUD_FILE_NAME = "meanease_personal_data.csv", CLOUD_MAX_BYTES = 4 * 1024 * 1024;
     const PERSONAL_DATA_HEADERS = ["record_type", "key", "state", "due_position", "interval", "ease", "reps", "lapses", "last_reviewed", "removed_at", "value"];
     const DEFAULT_SETTINGS = { autoSpeak: false };
@@ -568,6 +570,7 @@
         progress.set(key, parsePersonalProgressRow(row));
       });
       if (metadata.get("schema_version") !== "1") throw new Error("不支持此云存档版本");
+      if (!PROGRESS_COMPATIBLE_LIBRARY_VERSIONS.has(metadata.get("source_library_version"))) throw new Error("云存档使用了不兼容的词库版本");
       const settings = { ...DEFAULT_SETTINGS, ...parseJsonMetadata(metadata, "settings", {}) };
       settings.autoSpeak = Boolean(settings.autoSpeak); delete settings.newLimit; delete settings.reviewLimit;
       const activity = parseJsonMetadata(metadata, "activity", {});
