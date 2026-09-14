@@ -64,23 +64,49 @@ class MorphologyLunaBatchTests(unittest.TestCase):
             self.assertEqual(request["body"]["reasoning"], {"effort": "minimal"})
             manifest = json.loads(output.with_suffix(".manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["reasoning_effort"], "minimal")
+            self.assertEqual(manifest["prompt_version"], "v7-maximal-learning")
 
-    def test_prompt_examples_are_disjoint_from_holdout_words(self) -> None:
-        prompt_examples = {"unhelpful", "prediction", "creation", "illegal", "uncle"}
-        holdout_words = {
-            "irregular", "carelessness", "transportation", "receive",
-            "window", "inject", "disagreement", "replacement",
+    def test_prompt_maximizes_learning_decomposition(self) -> None:
+        self.assertEqual(batch.PROMPT_VERSION, "v7-maximal-learning")
+        self.assertIn("interrogation => inter-<prefix> + rog<root> + -ate<suffix> + -ion<suffix>", batch.PROMPT)
+        self.assertIn("window => wind<mnemonic_anchor> + ow<spelling_fragment>", batch.PROMPT)
+        self.assertIn("不要因为已经找到一个完整 base 就停止", batch.PROMPT)
+        self.assertIn("仅作记忆锚点，不表示现代构词义", batch.PROMPT)
+        self.assertIn("拼写片段，无独立构词义", batch.PROMPT)
+        self.assertIn("最大化拆解不等于任意切字母", batch.PROMPT)
+        self.assertNotIn("sq<mnemonic_anchor> + uint", batch.PROMPT)
+
+    def test_result_schema_supports_learning_chunks(self) -> None:
+        schema = batch.result_schema()
+        enum = schema["properties"]["items"]["items"]["properties"]["parts"]["items"]["properties"]["type"]["enum"]
+        self.assertIn("mnemonic_anchor", enum)
+        self.assertIn("spelling_fragment", enum)
+
+    def test_learning_chunk_validation_and_rendering(self) -> None:
+        item = {
+            "word": "window", "status": "ok", "confidence": "high", "spelling_note": "",
+            "parts": [
+                {"form": "wind", "type": "mnemonic_anchor", "meaning_zh": "wind（风），仅作记忆锚点，不表示现代构词义"},
+                {"form": "ow", "type": "spelling_fragment", "meaning_zh": "拼写片段，无独立构词义"},
+            ],
         }
-        self.assertTrue(prompt_examples.isdisjoint(holdout_words))
-        for word in prompt_examples:
-            self.assertIn(word, batch.PROMPT)
-        for word in holdout_words:
-            self.assertNotIn(word, batch.PROMPT)
-        self.assertIn("不得为了让字母恰好拼接而临时创造", batch.PROMPT)
-        self.assertIn("不得把一个成分在其他单词中的常见意思机械套到当前单词", batch.PROMPT)
-        self.assertIn("不要为了让 parts 机械拼接成目标拼写而把真实词素截成临时片段", batch.PROMPT)
-        for forbidden_depth_phrase in ("拆解深度", "浅层", "更浅", "更深", "拆解层级", "基础词层级", "完整拆解"):
-            self.assertNotIn(forbidden_depth_phrase, batch.PROMPT)
+        self.assertEqual(batch.validate_item(item, {"window"}), [])
+        note = batch.render_note("window", item["parts"], "", "窗；窗口")
+        self.assertIn("window / wind-ow", note)
+        self.assertIn("（记忆锚点）", note)
+        self.assertIn("（拼写片段）", note)
+
+    def test_learning_chunks_must_be_explicitly_disclaimed(self) -> None:
+        item = {
+            "word": "window", "status": "ok", "confidence": "high", "spelling_note": "",
+            "parts": [
+                {"form": "wind", "type": "mnemonic_anchor", "meaning_zh": "风"},
+                {"form": "ow", "type": "spelling_fragment", "meaning_zh": "结尾"},
+            ],
+        }
+        issues = batch.validate_item(item, {"window"})
+        self.assertIn("mnemonic_anchor_must_disclaim", issues)
+        self.assertIn("spelling_fragment_must_disclaim", issues)
 
     def test_parse_renders_morphology_and_leaves_core_word_blank(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -163,6 +189,17 @@ class MorphologyLunaBatchTests(unittest.TestCase):
             ],
         }
         self.assertIn("duplicate_component_form", batch.validate_item(item, {"tiled"}))
+
+    def test_same_surface_form_in_different_morpheme_types_is_allowed(self) -> None:
+        item = {
+            "word": "enlighten", "status": "ok", "confidence": "high", "spelling_note": "",
+            "parts": [
+                {"form": "en-", "type": "prefix", "meaning_zh": "使进入某状态"},
+                {"form": "light", "type": "base", "meaning_zh": "光；明亮"},
+                {"form": "-en", "type": "suffix", "meaning_zh": "使成为"},
+            ],
+        }
+        self.assertNotIn("duplicate_component_form", batch.validate_item(item, {"enlighten"}))
 
     def test_root_matching_reference_word_is_review_warning(self) -> None:
         item = {

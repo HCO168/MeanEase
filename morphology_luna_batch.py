@@ -29,7 +29,8 @@ DEFAULT_INPUT = Path("us_core_7000_authentic.csv")
 DEFAULT_WORKDIR = Path("tmp/morphology-luna")
 STATUSES = {"ok", "not_decomposable", "needs_review"}
 CONFIDENCES = {"high", "medium", "low"}
-PART_TYPES = {"prefix", "root", "base", "suffix", "combining_form"}
+PROMPT_VERSION = "v7-maximal-learning"
+PART_TYPES = {"prefix", "root", "base", "suffix", "combining_form", "mnemonic_anchor", "spelling_fragment"}
 FORM_RE = re.compile(r"^-?[A-Za-z]+(?:'[A-Za-z]+)?-?$")
 SPELLING_CHANGE_CLAIM_RE = re.compile(r"脱落|删除|删去|省略|双写|加倍|变为|改为|替换")
 SPELLING_CHANGE_NEGATION_RE = re.compile(r"不双写|无需双写|不加倍|不脱落|不删除|不省略|不改变|无变化|保持|保留")
@@ -50,35 +51,34 @@ PRODUCTIVE_SUFFIXES = (
     "ist", "ity", "ive", "ize", "less", "ly", "ment", "ness", "ous", "ship", "y",
 )
 
-PROMPT = """你为英语学习应用 MeanEase 生成“构词拆解（morphological decomposition）”草稿，不是历史词源。
-对每个输入词判断现代学习上能否可靠拆成有意义的前缀、词根、基础词、后缀或构词成分。
+PROMPT = """你为英语学习应用 MeanEase 生成“最大化学习型拆解（maximal learning decomposition）”草稿。目标是把单词尽可能细地拆成对记忆有帮助的连续片段，同时明确区分真实构词成分和纯记忆/拼写片段。
 
 硬规则：
-1. 禁止写历史传入链；不要回答中古英语、古英语、古法语、拉丁语/希腊语传入英语等历史来源。
-2. 分析时可以识别现代英语基础词、bound root、前缀、后缀和 combining form；只要组成关系真实、解释清楚且对学习者有价值，不限制成分数量或组合方式。
-3. 每个被拆出的成分都必须是稳定、可复用、具有明确构词身份的学习型成分。不得为了让字母恰好拼接而临时创造只适用于当前单词的“词根”“基础词”或任意字母片段。
-4. 存在现代基础词时，仍要检查其中是否包含稳定且有学习价值的构词成分；存在更多可切分位置时，也不能仅为了增加成分数量而强行切分。最终分析只由构词关系本身决定。
-5. 每个词素的 meaning_zh 必须解释它在当前单词里实际贡献的学习含义。仅有拼写相似不能证明它就是某个常见前缀、后缀或词根；不得把一个成分在其他单词中的常见意思机械套到当前单词。若切分形式上看似可能，但任一成分在当前单词中的语义不能可靠解释，status=needs_review。
-6. status=ok 只用于“切分与每个成分在当前单词中的语义都可靠”的情况；无法得到可靠且有学习价值的拆解时用 not_decomposable；存在合理候选但切分或语义仍不确定时用 needs_review。not_decomposable 和 needs_review 的 parts 都必须为空数组。
-7. 禁止按字母相邻硬拆。parts 按构词顺序从左到右；prefix 的 form 末尾带 -，suffix 的 form 开头带 -，root/base 不带边界连字符。若真实词素在派生中发生规则性拼写变化，可以保留该词素的完整构词形式，并在 spelling_note 说明变化；不要为了让 parts 机械拼接成目标拼写而把真实词素截成临时片段。
-8. 若拼接涉及字母脱落、增加、替换、辅音同化或其他对学习者有用的形式变化，写进 spelling_note；没有调整时为空字符串。
-9. confidence 反映你对“这个切分以及各成分在当前单词中的解释”的把握；不要因为 JSON 结构完整就给高置信度。
+1. 第一优先级是真实构词：尽可能递归识别 prefix、bound root、现代英语 base、suffix、combining form。只要一个较大的 base 内部还能可靠拆出稳定、可复用且对学习有价值的真实构词成分，就继续拆，不要停在较大的 base。
+2. 真实构词已经无法继续时，为了帮助拼写记忆，可以使用 mnemonic_anchor 和 spelling_fragment。mnemonic_anchor 是目标词中连续出现、容易识别和记忆的英语词/稳定片段，但不要求它在目标词中承担真实现代构词意义；meaning_zh 必须明确写“仅作记忆锚点，不表示现代构词义”。spelling_fragment 只覆盖剩余字母，meaning_zh 必须明确写“拼写片段，无独立构词义”。
+3. 最大化拆解不等于任意切字母。优先真实词素，其次才是确实有助于记忆的 anchor + fragment。不得为了增加片段数量把一个本来更好记的整体机械切成无意义的两三字母串；与目标词毫无学习关联的缩写、编程术语或偶然同形不能作为 mnemonic_anchor。
+4. 所有 parts 必须按目标拼写从左到右覆盖整个单词；真实词素发生规则拼写变化时可以保留完整构词形式并在 spelling_note 解释。mnemonic_anchor / spelling_fragment 则按目标词中的实际表面拼写填写，不制造虚假拼写变化。
+5. 对真实构词成分，meaning_zh 必须解释它在当前单词中实际贡献的意义。对 mnemonic_anchor，meaning_zh 只说明记忆联想并明确它不表示现代构词义；对 spelling_fragment，只写拼写作用，不赋予虚假语义。
+6. status=ok 用于存在可靠真实构词拆解，或存在明确有帮助且不误导的学习型拆解。只有既没有可靠构词拆解、也找不到有价值的记忆拆解时才用 not_decomposable。仍有合理候选但会明显误导时用 needs_review。not_decomposable / needs_review 的 parts 必须为空数组。
+7. prefix 的 form 末尾带 -，suffix 的 form 开头带 -；root/base/combining_form/mnemonic_anchor/spelling_fragment 不使用边界连字符。
+8. 若真实词素拼接涉及字母脱落、增加、替换、辅音同化等，写进 spelling_note；没有真实拼写调整时为空字符串。不要把纯记忆分段描述成历史词源或真实词素变化。
+9. 禁止输出历史传入链；不要回答中古英语、古英语、古法语、拉丁语/希腊语传入英语等历史来源。
+10. confidence 反映你对“这种拆法是否真实或确实有学习价值且不误导”的把握，不要因为 JSON 结构完整就给高置信度。
 
-参考示例（只用于说明判断方式）：
-unhelpful => un- + help + -ful；high
-prediction => pre- + dict + -ion；high
-creation => create + -ion；spelling_note="create 加 -ion 时词尾 e 脱落"；high
-illegal => il- + legal；spelling_note="否定前缀 in- 在 l 前同化为 il-"；high
-uncle => not_decomposable；parts=[]；high
+参考示例：
+unhelpful => un-<prefix> + help<base> + -ful<suffix>；high
+interrogation => inter-<prefix> + rog<root> + -ate<suffix> + -ion<suffix>；high
+creation => create<base> + -ion<suffix>；spelling_note="create 加 -ion 时词尾 e 脱落"；high
+window => wind<mnemonic_anchor> + ow<spelling_fragment>；wind 的 meaning_zh="wind（风），仅作记忆锚点，不表示现代构词义"；ow 的 meaning_zh="拼写片段，无独立构词义"
+uncle => not_decomposable；parts=[]；只有在找不到比整词更有帮助且不误导的拆法时才这样返回。
 
 判定顺序：
-A. 先判断这个词是否存在可靠且有学习价值的构词拆解；没有则 not_decomposable。
-B. 找出可能成立的构词成分组合，包括现代基础词、bound root、前缀、后缀和 combining form。
-C. 对每个候选成分逐一验证：它是否是真实稳定的构词成分、类型是否合理、在当前单词中的语义是否成立、整体是否能解释目标词。
-D. 如果存在多个都可靠的分析，选择最有助于学习者理解构词关系的一种。
-E. 只要某一步仍依赖猜测、机械类比或无法可靠说明的语义，就返回 needs_review，不输出候选 parts。
-
-必须为输入中的每个 word 返回且只返回一个 item；word 原样复制。"""
+A. 先递归寻找最细且可靠的真实构词成分；不要因为已经找到一个完整 base 就停止。
+B. 若真实构词无法覆盖到更细，检查能否用一个或多个有明显记忆价值的 mnemonic_anchor，加必要的 spelling_fragment 覆盖剩余拼写。
+C. 比较候选时，优先真实构词信息更多、片段更细且仍然稳定可解释的方案；若真实构词程度相同，选择更容易记忆且更少误导的方案。
+D. 不允许把与当前词无关的偶然同形片段强行解释成词根或词缀；纯拼写剩余必须标为 spelling_fragment。
+E. 必须为输入中的每个 word 返回且只返回一个 item；word 原样复制。
+"""
 
 
 def result_schema() -> dict[str, Any]:
@@ -204,6 +204,7 @@ def prepare(args: argparse.Namespace) -> int:
             request_count += 1
     manifest = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "prompt_version": PROMPT_VERSION,
         "model": model,
         "reasoning_effort": reasoning_effort,
         "endpoint": BATCH_ENDPOINT,
@@ -485,8 +486,8 @@ def validate_item(item: dict[str, Any], known_words: set[str]) -> list[str]:
         issues.append("ok_requires_multiple_parts")
     if status_value != "ok" and parts:
         issues.append("non_ok_must_have_empty_parts")
-    normalized_forms = [normalized_part_form(part) for part in parts]
-    if len(normalized_forms) != len(set(normalized_forms)):
+    normalized_components = [(normalized_part_form(part), part.get("type")) for part in parts]
+    if len(normalized_components) != len(set(normalized_components)):
         issues.append("duplicate_component_form")
     for part in parts:
         form = str(part.get("form", ""))
@@ -502,6 +503,12 @@ def validate_item(item: dict[str, Any], known_words: set[str]) -> list[str]:
             issues.append("suffix_boundary_missing")
         if part_type in {"root", "base"} and (form.startswith("-") or form.endswith("-")):
             issues.append("root_or_base_has_boundary")
+        if part_type in {"mnemonic_anchor", "spelling_fragment"} and (form.startswith("-") or form.endswith("-")):
+            issues.append("learning_chunk_has_boundary")
+        if part_type == "mnemonic_anchor" and "记忆锚点" not in meaning:
+            issues.append("mnemonic_anchor_must_disclaim")
+        if part_type == "spelling_fragment" and not ("拼写片段" in meaning and "无独立构词义" in meaning):
+            issues.append("spelling_fragment_must_disclaim")
         if not meaning.strip():
             issues.append("empty_component_meaning")
         if HISTORY_RE.search(meaning):
@@ -528,6 +535,10 @@ def render_note(word: str, parts: list[dict[str, Any]], spelling_note: str, word
             meaning += "（词根）"
         elif part["type"] == "combining_form":
             meaning += "（构词成分）"
+        elif part["type"] == "mnemonic_anchor":
+            meaning += "（记忆锚点）"
+        elif part["type"] == "spelling_fragment":
+            meaning += "（拼写片段）"
         explanations.append(f"{form}：{meaning}")
     pieces = [f"{word} / {decomposition}", *explanations]
     if spelling_note:
