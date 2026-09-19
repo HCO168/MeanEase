@@ -21,6 +21,8 @@
 | `morphology_luna_batch.py` | 用 OpenAI Batch 生成结构化构词草稿并校验结果；默认 Luna，也可指定其他兼容模型；不会自动写入正式词库 |
 | `apply_morphology_candidates.py` | 只把 `ok + high + 无 issue/warning` 的已验收候选写入正式 CSV，并要求来源/许可字段同时写入 |
 
+2026-09-11 的人工审校批次及对应的 `morphology_review_pipeline.py`、`morphology_review_guide.md` 是旧 `etymology*` 词库快照的历史审计材料，详见 `morphology_reviews/2026-09-11/README.md`。当前正式 CSV 使用 `morphology*` 字段和 v5 规则，不能用旧审校器回写；旧自动构词脚本的停用版本仅保存在该批次的 `legacy/` 目录。
+
 ## 启动
 
 macOS 直接双击 `启动英语词汇学习.command`，Windows 直接双击 `启动英语词汇学习.bat`。也可以在终端运行：
